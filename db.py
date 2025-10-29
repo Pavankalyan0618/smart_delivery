@@ -29,3 +29,24 @@ def execute(sql, params=None):
         conn.commit()
 
 
+# --- Healthcheck helper ---
+
+def db_healthcheck():
+    """Return True if the database is reachable and responds to SELECT 1."""
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 AS ok;")
+            row = cur.fetchone()
+            if row is None:
+                return False
+        
+            try:
+                val = next(iter(row.values()))
+            except AttributeError:
+                val = row[0]
+            return val == 1
+    except Exception:
+        return False
+
+
+
