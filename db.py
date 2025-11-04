@@ -39,7 +39,7 @@ def db_healthcheck():
             row = cur.fetchone()
             if row is None:
                 return False
-        
+                # RealDictCursor returns a dict; fall back if it's a tuple
             try:
                 val = next(iter(row.values()))
             except AttributeError:
@@ -49,4 +49,41 @@ def db_healthcheck():
         return False
 
 
+# --- Admin helpers ---
+
+def list_customers():
+    return fetch_all("""
+        SELECT customer_id, full_name, plan_name, is_active
+        FROM customers
+        ORDER BY full_name;
+    """)
+
+def list_drivers():
+    return fetch_all("""
+        SELECT driver_id, full_name, phone
+        FROM drivers
+        ORDER BY full_name;
+    """)
+
+def add_customer(full_name, phone, address, plan_name, is_active=True):
+    """Insert customer matching DB schema where phone column is named phone_number."""
+    execute(
+        """
+        INSERT INTO customers (full_name, phone_number, address, plan_name, is_active)
+        VALUES (%s, %s, %s, %s, %s);
+        """,
+        (full_name, phone or "", address, plan_name, is_active),
+    )
+
+def add_driver(full_name, phone):
+    execute("""
+        INSERT INTO drivers (full_name, phone)
+        VALUES (%s, %s);
+    """, (full_name, phone))
+
+def create_assignment(assign_date, customer_id, driver_id, created_by=None):
+    execute("""
+        INSERT INTO assignments (assign_date, customer_id, driver_id, created_by)
+        VALUES (%s, %s, %s, %s);
+    """, (assign_date, customer_id, driver_id, created_by))
 

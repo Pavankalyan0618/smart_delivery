@@ -21,3 +21,29 @@ last_err = st.session_state.get("last_error")
 if last_err:
     st.sidebar.warning(f"Last error: {last_err}")
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+
