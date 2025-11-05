@@ -87,3 +87,34 @@ def create_assignment(assign_date, customer_id, driver_id, created_by=None):
         VALUES (%s, %s, %s, %s);
     """, (assign_date, customer_id, driver_id, created_by))
 
+# --- Delivery helpers 
+
+def list_assignments_for_date(assign_date):
+    sql = """
+    SELECT a.assignment_id, a.assign_date, a.customer_id, a.driver_id,
+           c.full_name AS customer_name,
+           d.full_name AS driver_name
+    FROM assignments a
+    JOIN customers c ON c.customer_id = a.customer_id
+    JOIN drivers   d ON d.driver_id   = a.driver_id
+    WHERE a.assign_date = %s
+    ORDER BY c.full_name;
+    """
+    return fetch_all(sql, (assign_date,))
+
+
+def upsert_delivery(assignment_id, delivery_date, status, marked_by=None):
+    """Insert or update a delivery row for (assignment_id, delivery_date).
+    Status is saved in lowercase to satisfy CHECK(status in ('delivered','missed'))."""
+    sql = """
+    INSERT INTO deliveries (assignment_id, delivery_date, status, marked_by)
+    VALUES (%s, %s, LOWER(%s), %s)
+    ON CONFLICT (assignment_id, delivery_date)
+    DO UPDATE SET status    = EXCLUDED.status,
+                  marked_by = COALESCE(EXCLUDED.marked_by, deliveries.marked_by);
+    """
+    execute(sql, (assignment_id, delivery_date, status, marked_by))
+
+
+
+
