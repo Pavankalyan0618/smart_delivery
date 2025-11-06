@@ -18,10 +18,11 @@ def plan_hits(d, plan):
     if not p: return False
     return dow_str(d) in [x.strip() for x in p.split(",") if x.strip()]
 
-# Sidebar diagnostics (always visible)
-st.sidebar.title("Diagnostics")
-if st.sidebar.button("DB Ping"):
-    st.sidebar.write("DB reachable:", db_healthcheck())
+def in_window(d, s, e):
+    return (not s or d >= s) and (not e or d <= e)
+
+def after_pause(d, p):
+    return (not p) or (d > p)
 
 last_err = st.session_state.get("last_error")
 if last_err:
