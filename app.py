@@ -62,7 +62,21 @@ def write_kpis(target=None):
     """, {"d": d, "t": total, "dv": delivered, "m": missed, "p": pending, "o": owed_customers})
     return dict(date=str(d), total=total, delivered=delivered, missed=missed, pending=pending, owed_customers=owed_customers)
 
-
+def apply_update(customer_id, driver_id, status):
+    owner = fetchall("SELECT driver_id FROM assignments WHERE customer_id=:cid", {"cid": customer_id})
+    if not owner or owner[0]["driver_id"] != driver_id:
+        return False
+    d = date.today()
+    execute("UPDATE deliveries SET status=:s, driver_id=:did WHERE date=:d AND customer_id=:cid",
+            {"s": status, "did": driver_id, "d": d, "cid": customer_id})
+    owed_row = fetchall("SELECT owed FROM customers WHERE customer_id=:cid", {"cid": customer_id})
+    owed = (owed_row[0]["owed"] if owed_row else 0) or 0
+    if status=="missed":
+        owed += 1
+    elif status=="delivered" and owed>0:
+        owed -= 1
+    execute("UPDATE customers SET owed=:o WHERE customer_id=:cid", {"o": owed, "cid": customer_id})
+    return True
 
 
  
