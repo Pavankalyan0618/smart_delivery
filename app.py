@@ -46,6 +46,23 @@ def schedule_today(target=None):
                     added += 1
     return added
 
+def write_kpis(target=None):
+    d = parse_date(target).date() if target else date.today()
+    rows = fetchall("SELECT status FROM deliveries WHERE date=:d", {"d": d})
+    total = len(rows)
+    delivered = sum(1 for r in rows if r["status"]=="delivered")
+    missed = sum(1 for r in rows if r["status"]=="missed")
+    pending = sum(1 for r in rows if r["status"]=="pending")
+    owed_customers = fetchall("SELECT COUNT(*) c FROM customers WHERE COALESCE(owed,0)>0")[0]["c"]
+    execute("""
+      INSERT INTO daily_report(date,total,delivered,missed,pending,owed_customers)
+      VALUES(:d,:t,:dv,:m,:p,:o)
+      ON CONFLICT (date) DO UPDATE SET
+        total=:t, delivered=:dv, missed=:m, pending=:p, owed_customers=:o
+    """, {"d": d, "t": total, "dv": delivered, "m": missed, "p": pending, "o": owed_customers})
+    return dict(date=str(d), total=total, delivered=delivered, missed=missed, pending=pending, owed_customers=owed_customers)
+
+
 
 
  
