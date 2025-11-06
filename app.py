@@ -24,10 +24,27 @@ def in_window(d, s, e):
 def after_pause(d, p):
     return (not p) or (d > p)
 
-last_err = st.session_state.get("last_error")
-if last_err:
-    st.sidebar.warning(f"Last error: {last_err}")
-
+def schedule_today(target=None):
+    d = parse_date(target).date() if target else date.today()
+    cs = fetchall("""
+      SELECT c.customer_id, c.plan, c.start_date, c.end_date, c.pause_until, COALESCE(c.owed,0) owed,
+             a.driver_id
+      FROM customers c LEFT JOIN assignments a ON a.customer_id=c.customer_id
+    """)
+    existing = {r["customer_id"] for r in fetchall(
+        "SELECT customer_id FROM deliveries WHERE date=:d", {"d": d}
+    )}
+    added = 0
+    for c in cs:
+        if in_window(d, c["start_date"], c["end_date"]) and after_pause(d, c["pause_until"]):
+            if plan_hits(d, c["plan"]) or (c["owed"]>0):
+                if c["customer_id"] not in existing:
+                    execute("""
+                      INSERT INTO deliveries(date,customer_id,driver_id,status,notes)
+                      VALUES(:d,:cid,:did,'pending','')
+                    """, {"d": d, "cid": c["customer_id"], "did": c["driver_id"]})
+                    added += 1
+    return added
 
 
 
