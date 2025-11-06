@@ -1,16 +1,22 @@
 import streamlit as st
-from datetime import date, timedelta
-from db import (
-    list_customers, list_drivers,
-    add_customer, add_driver, create_assignment,
-    db_healthcheck,
-    list_assignments_for_date, upsert_delivery, copy_missed_to_date, delivery_kpis_for_date
-)
+import pandas as pd
+from datetime import date, datetime
+from dateutil.parser import parse as parse_date
+from db import fetchall, execute
 
 st.set_page_config(page_title="Smart Delivery", layout="wide")
 st.title("Smart Delivery System")
 
-tabs = st.tabs(["Admin", "Driver", "Dashboard"])
+# ---------- Utility logic ----------
+WEEKDAYS = ["mon","tue","wed","thu","fri","sat","sun"]
+def dow_str(d): return WEEKDAYS[d.weekday()]
+
+def plan_hits(d, plan):
+    p = (plan or "").strip().lower()
+    if p == "daily": return True
+    if p in ("weekday","weekdays"): return dow_str(d) in WEEKDAYS[:5]
+    if not p: return False
+    return dow_str(d) in [x.strip() for x in p.split(",") if x.strip()]
 
 # Sidebar diagnostics (always visible)
 st.sidebar.title("Diagnostics")
