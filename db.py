@@ -115,6 +115,34 @@ def upsert_delivery(assignment_id, delivery_date, status, marked_by=None):
     """
     execute(sql, (assignment_id, delivery_date, status, marked_by))
 
+def copy_missed_to_date(prev_date, new_date):
+    """Carry over yesterday's MISSED deliveries to a new date."""
+    sql = """
+    INSERT INTO deliveries (assignment_id, delivery_date, status, marked_by)
+    SELECT d.assignment_id, %s, 'missed', NULL
+    FROM deliveries d
+    WHERE d.delivery_date = %s AND d.status = 'missed'
+      AND NOT EXISTS (
+        SELECT 1 FROM deliveries d2
+        WHERE d2.assignment_id = d.assignment_id
+          AND d2.delivery_date = %s
+      );
+    """
+    execute(sql, (new_date, prev_date, new_date))
+
+
+def delivery_kpis_for_date(delivery_date):
+    sql = """
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'delivered') AS delivered,
+      COUNT(*) FILTER (WHERE status = 'missed')    AS missed,
+      0::int                                       AS pending,
+      COUNT(*)                                     AS total
+    FROM deliveries
+    WHERE delivery_date = %s;
+    """
+    row = fetch_one(sql, (delivery_date,))
+    return row or {"delivered": 0, "missed": 0, "pending": 0, "total": 0}
 
 
 
