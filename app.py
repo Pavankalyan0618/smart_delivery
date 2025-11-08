@@ -115,3 +115,86 @@ with tabs[0]:
         st.dataframe(drivers, use_container_width=True)
     else:
         st.info("No drivers to display.")
+
+# -------------------- Driver Tab --------------------
+with tabs[1]:
+    st.subheader("Driver – mark Delivered / Missed")
+
+    work_date = st.date_input("Date", value=date.today(), key="driver_work_date")
+
+    try:
+        drivers_all = list_drivers()
+    except Exception as e:
+        st.session_state["last_error"] = str(e)
+        st.error("Couldn't load drivers.")
+        drivers_all = []
+
+    if not drivers_all:
+        st.info("No drivers yet. Add one in Admin tab.")
+    else:
+        driver_map = {d["full_name"]: d["driver_id"] for d in drivers_all}
+        sel_driver_label = st.selectbox("Driver", list(driver_map.keys()), key="driver_picker")
+        sel_driver_id = driver_map[sel_driver_label]
+
+        try:
+            todays_assign = list_assignments_for_date(work_date)
+        except Exception as e:
+            st.session_state["last_error"] = str(e)
+            st.error("Couldn't load assignments.")
+            todays_assign = []
+
+        todays_assign = [r for r in todays_assign if r["driver_id"] == sel_driver_id]
+
+        if not todays_assign:
+            st.info("No assignments for this driver on the selected date.")
+        else:
+            st.caption("Mark each delivery as Delivered or Missed, then Submit.")
+            status_by_assignment = {}
+            for row in todays_assign:
+                key = f'status_{row["assignment_id"]}'
+                status_by_assignment[row["assignment_id"]] = st.radio(
+                    f'{row["customer_name"]}',
+                    options=["DELIVERED", "MISSED"],
+                    horizontal=True,
+                    key=key
+                )
+
+            if st.button("Submit statuses"):
+                try:
+                    for row in todays_assign:
+                        upsert_delivery(
+                            assignment_id=row["assignment_id"],
+                            delivery_date=work_date,
+                            status=status_by_assignment[row["assignment_id"]].lower(),
+                            marked_by=None
+                        )
+                    st.success("Statuses saved.")
+                except Exception as e:
+                    st.session_state["last_error"] = str(e)
+                    st.error("Failed to save statuses. See sidebar.")
+
+        st.divider()
+        if st.button("Copy yesterday's MISSED to today"):
+            try:
+                prev_date = work_date - timedelta(days=1)
+                copy_missed_to_date(prev_date, work_date)
+                st.success("Carried over yesterday's MISSED assignments.")
+            except Exception as e:
+                st.session_state["last_error"] = str(e)
+                st.error("Failed to carry over. See sidebar.")
+
+# -------------------- Dashboard Tab -----------------
+with tabs[2]:
+    st.subheader("Dashboard – KPIs")
+    kpi_date = st.date_input("KPI Date", value=date.today())
+    try:
+        k = delivery_kpis_for_date(kpi_date)
+        colA, colB, colC, colD = st.columns(4)
+        colA.metric("Delivered", k.get("delivered", 0))
+        colB.metric("Missed",    k.get("missed", 0))
+        colC.metric("Pending",   k.get("pending", 0))
+        colD.metric("Total",     k.get("total", 0))
+    except Exception as e:
+        st.session_state["last_error"] = str(e)
+        st.error("Could not load KPIs.")
+
