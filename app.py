@@ -64,3 +64,54 @@ with tabs[0]:
                 st.warning("Driver name is required.")
 
     st.divider()
+
+# Assignment section
+    st.markdown("**Assign Customer to Driver (for a date)**")
+    try:
+        customers = list_customers()
+    except Exception as e:
+        st.session_state["last_error"] = str(e)
+        st.error("Couldn't load customers from DB.")
+        customers = []
+
+    try:
+        drivers = list_drivers()
+    except Exception as e:
+        st.session_state["last_error"] = str(e)
+        st.error("Couldn't load drivers from DB.")
+        drivers = []
+
+    if not customers:
+        st.info("No customers yet. Add one above.")
+    if not drivers:
+        st.info("No drivers yet. Add one above.")
+
+    if customers and drivers:
+        cust_map = {c["full_name"]: c["customer_id"] for c in customers}
+        driv_map = {d["full_name"]: d["driver_id"] for d in drivers}
+
+        sel_cust = st.selectbox("Customer", list(cust_map.keys()), key="assign_customer")
+        sel_driv = st.selectbox("Driver", list(driv_map.keys()), key="assign_driver")
+        sel_date = st.date_input("Assignment date", value=date.today(), key="assign_date")
+
+        if st.button("Create Assignment"):
+            try:
+                create_assignment(sel_date, cust_map[sel_cust], driv_map[sel_driv])
+                st.success("Assignment created.")
+            except Exception as e:
+                st.session_state["last_error"] = str(e)
+                st.error("Failed to create assignment. See sidebar for details.")
+
+    st.divider()
+
+    st.markdown("**Customers (live from DB)**")
+    if customers:
+        st.dataframe(customers, use_container_width=True)
+    else:
+        st.info("No customers to display.")
+
+    st.markdown("**Drivers (live from DB)**")
+    if drivers:
+        st.dataframe(drivers, use_container_width=True)
+    else:
+        st.info("No drivers to display.")
