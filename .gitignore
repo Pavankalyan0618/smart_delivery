@@ -1,0 +1,11 @@
+# Ignore virtual environment
+.venv/
+
+# Ignore cache files
+__pycache__/
+
+# Ignore local secrets (these will be added manually in Streamlit Cloud)
+.streamlit/secrets.toml
+
+# Ignore macOS metadata
+.DS_Store
