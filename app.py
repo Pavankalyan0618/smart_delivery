@@ -32,8 +32,15 @@ if not st.session_state["logged_in"]:
 st.set_page_config(page_title="Smart Delivery", layout="wide")
 st.title("Smart Delivery System")
 
-tabs = st.tabs(["Admin", "Driver", "Dashboard"])
-
+#---- Role based tabs -----
+if st.session_state["role"] == "admin":
+    tabs = st.tabs(["Admin", "Driver", "Dashboard"])
+elif st.session_state["role"] == "driver":
+    tabs = st.tabs(["Driver"])
+else:
+    st.error("Unknown role. Please contatct admin.")
+    st.stop()
+    
 # Sidebar diagnostics 
 st.sidebar.title("Diagnostics")
 if st.sidebar.button("DB Ping"):
