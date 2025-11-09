@@ -6,6 +6,28 @@ from db import (
     db_healthcheck,
     list_assignments_for_date, upsert_delivery, copy_missed_to_date, delivery_kpis_for_date
 )
+from db import authenticate_user
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+    st.session_state["role"] = None
+
+if not st.session_state["logged_in"]:
+    st.title("Smart Delivery Login")
+ 
+    username = st.text_input("username")
+    password = st.text_input("password", type="password")
+
+    if st.button("Login"):
+        user = authenticate_user(username, password)
+        if user:
+         st.session_state["logged_in"] = True
+         st.session_state["role"] = user["role"]
+         st.success(f"Welcome{user['username']} ({user['role']})!")
+         st.rerun()
+        else:
+         st.error("Invaild credentials")
+    st.stop()   
+            
 
 st.set_page_config(page_title="Smart Delivery", layout="wide")
 st.title("Smart Delivery System")

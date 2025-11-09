@@ -144,5 +144,13 @@ def delivery_kpis_for_date(delivery_date):
     row = fetch_one(sql, (delivery_date,))
     return row or {"delivered": 0, "missed": 0, "pending": 0, "total": 0}
 
+# --- login  ---
 
-
+def authenticate_user(username, password):
+    sql = """
+    SELECT username, role
+    FROM users
+    WHERE username =%s AND password_hash = %s;
+    """
+    result = fetch_one(sql,(username, password))
+    return result
