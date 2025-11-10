@@ -3,6 +3,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import logging
 
+# ---------- Database connection ----------
 def get_conn():
     return psycopg2.connect(
         host=st.secrets["DB_HOST"],
@@ -13,44 +14,35 @@ def get_conn():
         cursor_factory=RealDictCursor
     )
 
+# ---------- Helper functions ----------
 def fetch_all(sql, params=None):
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(sql, params or ())
-        return cur.fetchall()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params or ())
+            return cur.fetchall()
 
 def fetch_one(sql, params=None):
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(sql, params or ())
-        return cur.fetchone()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params or ())
+            return cur.fetchone()
 
 def execute(sql, params=None):
-    with get_conn() as conn, conn.cursor() as cur:
-        cur.execute(sql, params or ())
-        conn.commit()
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params or ())
+            conn.commit()
 
-
-# --- Healthcheck helper ---
-
+# ---------- Healthcheck ----------
 def db_healthcheck():
-    """Return True if the database is reachable and responds to SELECT 1."""
     try:
-        with get_conn() as conn, conn.cursor() as cur:
-            cur.execute("SELECT 1 AS ok;")
-            row = cur.fetchone()
-            if row is None:
-                return False
-                # RealDictCursor returns a dict; fall back if it's a tuple
-            try:
-                val = next(iter(row.values()))
-            except AttributeError:
-                val = row[0]
-            return val == 1
-    except Exception:
+        result = fetch_one("SELECT 1 AS ok;")
+        return bool(result)
+    except Exception as e:
+        logging.error(f"DB healthcheck failed: {e}")
         return False
 
-
-# --- Admin helpers ---
-
+# ---------- Admin functions ----------
 def list_customers():
     return fetch_all("""
         SELECT customer_id, full_name, plan_name, is_active
@@ -66,14 +58,10 @@ def list_drivers():
     """)
 
 def add_customer(full_name, phone, address, plan_name, is_active=True):
-    """Insert customer matching DB schema where phone column is named phone_number."""
-    execute(
-        """
-        INSERT INTO customers (full_name, phone_number, address, plan_name, is_active)
+    execute("""
+        INSERT INTO customers (full_name, phone, address, plan_name, is_active)
         VALUES (%s, %s, %s, %s, %s);
-        """,
-        (full_name, phone or "", address, plan_name, is_active),
-    )
+    """, (full_name, phone or "", address, plan_name, is_active))
 
 def add_driver(full_name, phone):
     execute("""
@@ -84,73 +72,60 @@ def add_driver(full_name, phone):
 def create_assignment(assign_date, customer_id, driver_id, created_by=None):
     execute("""
         INSERT INTO assignments (assign_date, customer_id, driver_id, created_by)
-        VALUES (%s, %s, %s, %s);
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (customer_id, assign_date) DO NOTHING;
     """, (assign_date, customer_id, driver_id, created_by))
 
-# --- Delivery helpers 
-
+# ---------- Delivery functions ----------
 def list_assignments_for_date(assign_date):
-    sql = """
-    SELECT a.assignment_id, a.assign_date, a.customer_id, a.driver_id,
-           c.full_name AS customer_name,
-           d.full_name AS driver_name
-    FROM assignments a
-    JOIN customers c ON c.customer_id = a.customer_id
-    JOIN drivers   d ON d.driver_id   = a.driver_id
-    WHERE a.assign_date = %s
-    ORDER BY c.full_name;
-    """
-    return fetch_all(sql, (assign_date,))
-
+    return fetch_all("""
+        SELECT a.assignment_id, a.customer_id, c.full_name AS customer_name,
+               a.driver_id, d.full_name AS driver_name
+        FROM assignments a
+        JOIN customers c ON a.customer_id = c.customer_id
+        JOIN drivers d ON a.driver_id = d.driver_id
+        WHERE a.assign_date = %s
+        ORDER BY c.full_name;
+    """, (assign_date,))
 
 def upsert_delivery(assignment_id, delivery_date, status, marked_by=None):
-    """Insert or update a delivery row for (assignment_id, delivery_date).
-    Status is saved in lowercase to satisfy CHECK(status in ('delivered','missed'))."""
-    sql = """
-    INSERT INTO deliveries (assignment_id, delivery_date, status, marked_by)
-    VALUES (%s, %s, LOWER(%s), %s)
-    ON CONFLICT (assignment_id, delivery_date)
-    DO UPDATE SET status    = EXCLUDED.status,
-                  marked_by = COALESCE(EXCLUDED.marked_by, deliveries.marked_by);
-    """
-    execute(sql, (assignment_id, delivery_date, status, marked_by))
+    execute("""
+        INSERT INTO deliveries (assignment_id, delivery_date, status, marked_by)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (assignment_id, delivery_date)
+        DO UPDATE SET status = EXCLUDED.status, marked_by = EXCLUDED.marked_by, marked_at = NOW();
+    """, (assignment_id, delivery_date, status, marked_by))
 
 def copy_missed_to_date(prev_date, new_date):
-    """Carry over yesterday's MISSED deliveries to a new date."""
-    sql = """
-    INSERT INTO deliveries (assignment_id, delivery_date, status, marked_by)
-    SELECT d.assignment_id, %s, 'missed', NULL
-    FROM deliveries d
-    WHERE d.delivery_date = %s AND d.status = 'missed'
-      AND NOT EXISTS (
-        SELECT 1 FROM deliveries d2
-        WHERE d2.assignment_id = d.assignment_id
-          AND d2.delivery_date = %s
-      );
-    """
-    execute(sql, (new_date, prev_date, new_date))
-
+    execute("""
+        INSERT INTO deliveries (assignment_id, delivery_date, status, marked_by)
+        SELECT assignment_id, %s, 'missed', marked_by
+        FROM deliveries
+        WHERE delivery_date = %s AND status = 'missed'
+        AND assignment_id NOT IN (
+            SELECT assignment_id FROM deliveries WHERE delivery_date = %s
+        );
+    """, (new_date, prev_date, new_date))
 
 def delivery_kpis_for_date(delivery_date):
-    sql = """
-    SELECT
-      COUNT(*) FILTER (WHERE status = 'delivered') AS delivered,
-      COUNT(*) FILTER (WHERE status = 'missed')    AS missed,
-      0::int                                       AS pending,
-      COUNT(*)                                     AS total
-    FROM deliveries
-    WHERE delivery_date = %s;
-    """
-    row = fetch_one(sql, (delivery_date,))
-    return row or {"delivered": 0, "missed": 0, "pending": 0, "total": 0}
+    return fetch_one("""
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'delivered') AS delivered,
+          COUNT(*) FILTER (WHERE status = 'missed') AS missed,
+          COUNT(*) FILTER (WHERE status NOT IN ('delivered','missed')) AS pending,
+          COUNT(*) AS total
+        FROM deliveries
+        WHERE delivery_date = %s;
+    """, (delivery_date,))
 
-# --- login  ---
-
+# ---------- Authentication ----------
 def authenticate_user(username, password):
     sql = """
-    SELECT username, role
-    FROM users
-    WHERE username =%s AND password_hash = %s;
+    SELECT u.user_id, u.username, u.role, d.driver_id
+    FROM users u
+    LEFT JOIN drivers d ON d.user_id = u.user_id
+    WHERE u.username = %s AND u.password_hash = %s;
     """
-    result = fetch_one(sql,(username, password))
+    result = fetch_one(sql, (username, password))
+    print("DEBUG LOGIN:", username, password, "=>", result)
     return result
