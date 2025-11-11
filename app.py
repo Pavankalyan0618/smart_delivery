@@ -34,7 +34,14 @@ if not st.session_state["logged_in"]:
             
 
 st.set_page_config(page_title="Smart Delivery", layout="wide")
-st.title("Smart Delivery System")
+col1, col2 = st.columns([8, 1])
+with col1:
+    st.title("Smart Delivey System")
+with col2:
+    if st.button("Logout"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.success("Logged out successfully.")
 
 #---- Role based tabs -----
 if st.session_state["role"] == "admin":
