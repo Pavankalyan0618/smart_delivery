@@ -8,9 +8,10 @@ from db import (
     list_assignments_for_date, upsert_delivery, copy_missed_to_date, delivery_kpis_for_date
 )
 from db import authenticate_user
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-    st.session_state["role"] = None
+for key in ["logged_in", "role", "user_id", "driver_id", "last_error"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
+st.session_state["logged_in"] = st.session_state["logged_in"] or False
 
 if not st.session_state["logged_in"]:
     st.title("Smart Delivery Login")
@@ -32,27 +33,28 @@ if not st.session_state["logged_in"]:
          st.error("Invalid credentials")
     st.stop()   
             
-
+#-----Logout button--------
 st.set_page_config(page_title="Smart Delivery", layout="wide")
 col1, col2 = st.columns([8, 1])
 with col1:
-    st.title("Smart Delivey System")
+    st.title("Smart Delivery System")
 with col2:
     if st.button("Logout"):
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.success("Logged out successfully.")
+        st.rerun()
 
 #---- Role based tabs -----
-if st.session_state["role"] == "admin":
+if st.session_state.get("role") == "admin":
     tabs = st.tabs(["Admin", "Driver", "Dashboard"])
-elif st.session_state["role"] == "driver":
+elif st.session_state.get("role") == "driver":
     tabs = st.tabs(["Driver"])
 else:
     st.error("Unknown role. Please contatct admin.")
     st.stop()
 
-# Sidebar diagnostics 
+#-----Sidebar diagnostics  ------
 st.sidebar.title("Diagnostics")
 if st.sidebar.button("DB Ping"):
     st.sidebar.write("DB reachable:", db_healthcheck())
@@ -62,7 +64,7 @@ if last_err:
     st.sidebar.warning(f"Last error: {last_err}")
 
 # -------------------- Admin Tab --------------------
-if st.session_state["role"] == "admin":
+if st.session_state.get("role") == "admin":
     with tabs[0]:
         st.subheader("Admin – manage customers, drivers, assignments")
 
@@ -158,7 +160,7 @@ if st.session_state["role"] == "admin":
             st.info("No drivers to display.")
 
 # -------------------- Driver Tab --------------------
-if st.session_state["role"] == "admin":
+if st.session_state.get("role") == "admin":
     with tabs[1]:
         st.subheader("Driver - mark Delivered / Missed")
 elif st.session_state["role"] == "driver":
@@ -220,7 +222,7 @@ elif st.session_state["role"] == "driver":
                 st.error("Failed to carry over") 
 
 # -------------------- Dashboard Tab -----------------
-if st.session_state["role"] == "admin":
+if st.session_state.get("role") == "admin":
     with tabs[2]:
         st.subheader("Dashboard – KPIs")
         kpi_date = st.date_input("KPI Date", value=date.today())
