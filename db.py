@@ -1,6 +1,7 @@
 import streamlit as st
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from psycopg2 import errors
 import logging
 
 # ---------- Database connection ----------
@@ -59,7 +60,7 @@ def list_drivers():
 
 def add_customer(full_name, phone, address, plan_name, is_active=True):
     execute("""
-        INSERT INTO customers (full_name, phone, address, plan_name, is_active)
+        INSERT INTO customers (full_name, phone_number, address, plan_name, is_active)
         VALUES (%s, %s, %s, %s, %s);
     """, (full_name, phone or "", address, plan_name, is_active))
 
@@ -70,11 +71,27 @@ def add_driver(full_name, phone):
     """, (full_name, phone))
 
 def create_assignment(assign_date, customer_id, driver_id, created_by=None):
-    execute("""
-        INSERT INTO assignments (assign_date, customer_id, driver_id, created_by)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (customer_id, assign_date) DO NOTHING;
-    """, (assign_date, customer_id, driver_id, created_by))
+    try:
+        execute("""
+            INSERT INTO assignments (assign_date, customer_id, driver_id, created_by)
+            VALUES (%s, %s, %s, %s);
+            """, (assign_date, customer_id, driver_id, created_by))
+    except psycopg2.errors.UniqueViolation:
+            raise ValueError("This customer already has an assignment")
+    except Exception as e:
+        raise   
+            
+
+def update_owed_deliveries(customer_id, status):
+    row = fetch_one("SELECT owed FROM customers WHERE customer_id = %s;", (customer_id,))
+    owed = (row["owed"] if row else 0) or 0
+
+    if status == "missed":
+        owed += 1
+    elif status == "delivered" and owed > 0:
+        owed -= 1
+    execute("UPDATE customers SET owed = %s WHERE customer_id = %s;", (owed, customer_id))
+
 
 # ---------- Delivery functions ----------
 def list_assignments_for_date(assign_date):
@@ -93,7 +110,7 @@ def upsert_delivery(assignment_id, delivery_date, status, marked_by=None):
         INSERT INTO deliveries (assignment_id, delivery_date, status, marked_by)
         VALUES (%s, %s, %s, %s)
         ON CONFLICT (assignment_id, delivery_date)
-        DO UPDATE SET status = EXCLUDED.status, marked_by = EXCLUDED.marked_by, marked_at = NOW();
+        DO UPDATE SET status = excluded.status, marked_by = excluded.marked_by;
     """, (assignment_id, delivery_date, status, marked_by))
 
 def copy_missed_to_date(prev_date, new_date):
