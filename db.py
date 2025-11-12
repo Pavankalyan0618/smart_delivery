@@ -86,10 +86,19 @@ def update_owed_deliveries(customer_id, status):
     row = fetch_one("SELECT owed FROM customers WHERE customer_id = %s;", (customer_id,))
     owed = (row["owed"] if row else 0) or 0
 
-    if status == "missed":
+    # 🔍 Prevent duplicate owed increments
+    existing = fetch_one("""
+        SELECT 1 FROM deliveries d
+        JOIN assignments a ON d.assignment_id = a.assignment_id
+        WHERE a.customer_id = %s AND d.status = 'missed'
+        AND d.delivery_date = CURRENT_DATE;
+    """, (customer_id,))
+
+    if status == "missed" and not existing:
         owed += 1
     elif status == "delivered" and owed > 0:
         owed -= 1
+
     execute("UPDATE customers SET owed = %s WHERE customer_id = %s;", (owed, customer_id))
 
 
