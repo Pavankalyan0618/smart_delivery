@@ -88,9 +88,9 @@ def update_owed_deliveries(assignment_id, customer_id, new_status, delivery_date
 
     existing = fetch_one("""
         SELECT d.status
-        FROM deliveries 
-        WHERE assignment_id = %s
-        AND delivery_date = %s                 
+        FROM deliveries d
+        WHERE d.assignment_id = %s
+        AND d.delivery_date = %s                 
         LIMIT 1;
     """, (assignment_id, delivery_date))
 
