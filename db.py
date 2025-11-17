@@ -92,27 +92,35 @@ def update_owed_deliveries(customer_id, new_status):
         JOIN assignments a ON a.assignment_id = d.assignment_id
         WHERE a.customer_id = %s
         AND d.delivery_date = CURRENT_DATE
-        LIMIT 1;                                  
+        LIMIT 1;
     """, (customer_id,))
 
     old_status = existing["status"] if existing else None
 
-    #--- status today---
+    # --- status for today ---
     if old_status is None:
         if new_status == "missed":
             owed += 1
 
-    #---- status changes same day----
     else:
-        if old_status == "missed" and new_status == "delivered":
+        # 1. missed -> missed (same day) => no change
+        if old_status == "missed" and new_status == "missed":
+            pass
+
+        # 2. missed -> delivered (same-day correction)
+        elif old_status == "missed" and new_status == "delivered":
             if owed > 0:
                 owed -= 1
-        
-        #--- new missed delievry today---
+
+        # 3. delivered -> missed (new missed today)
         elif old_status == "delivered" and new_status == "missed":
             owed += 1
 
-    execute("UPDATE customers SET owed = %s WHERE customer_id = %s;", (owed, customer_id ))        
+        # 4. delivered -> delivered => no change
+        else:
+            pass
+
+    execute("UPDATE customers SET owed = %s WHERE customer_id = %s;", (owed, customer_id))
 
 # ---------- Delivery functions ----------
 def list_assignments_for_date(assign_date):
