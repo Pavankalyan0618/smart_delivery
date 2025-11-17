@@ -82,7 +82,7 @@ def create_assignment(assign_date, customer_id, driver_id, created_by=None):
         raise   
             
 
-def update_owed_deliveries(customer_id, new_status):
+def update_owed_deliveries(customer_id, new_status, delivery_date):
     row = fetch_one("SELECT owed FROM customers WHERE customer_id = %s;", (customer_id,))
     owed = (row["owed"] if row else 0)
 
@@ -91,9 +91,9 @@ def update_owed_deliveries(customer_id, new_status):
         FROM deliveries d
         JOIN assignments a ON a.assignment_id = d.assignment_id
         WHERE a.customer_id = %s
-        AND d.delivery_date = CURRENT_DATE
+        AND d.delivery_date = %s
         LIMIT 1;
-    """, (customer_id,))
+    """, (customer_id, delivery_date))
 
     old_status = existing["status"] if existing else None
 
