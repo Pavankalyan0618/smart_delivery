@@ -233,7 +233,10 @@ elif st.session_state["role"] == "driver":
                             marked_by=st.session_state.get("user_id")
                             )
                         
-                        update_owed_deliveries(row["customer_id"], status, work_date)
+                        update_owed_deliveries(row["assignment_id"], 
+                                               row["customer_id"],
+                                               status, 
+                                               work_date)
 
                     st.success("Statuses saved.")
                 except Exception as e:
