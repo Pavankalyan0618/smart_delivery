@@ -226,17 +226,18 @@ elif st.session_state["role"] == "driver":
                 try:
                     for row in todays_assign:
                         status = status_by_assignment[row["assignment_id"]].lower()
+                        update_owed_deliveries(
+                            row["assignment_id"],
+                            row["customer_id"],
+                            status,
+                            work_date
+                        )
                         upsert_delivery(
                             assignment_id=row["assignment_id"],
                             delivery_date=work_date,
                             status=status,
                             marked_by=st.session_state.get("user_id")
-                            )
-                        
-                        update_owed_deliveries(row["assignment_id"], 
-                                               row["customer_id"],
-                                               status, 
-                                               work_date)
+                        )
 
                     st.success("Statuses saved.")
                 except Exception as e:

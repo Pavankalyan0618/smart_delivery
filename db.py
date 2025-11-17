@@ -5,6 +5,7 @@ from psycopg2 import errors
 import logging
 
 # ---------- Database connection ----------
+print("🔵 CONNECTING TO DB:", st.secrets["DB_NAME"])
 def get_conn():
     return psycopg2.connect(
         host=st.secrets["DB_HOST"],
@@ -84,41 +85,37 @@ def create_assignment(assign_date, customer_id, driver_id, created_by=None):
 
 def update_owed_deliveries(assignment_id, customer_id, new_status, delivery_date):
     row = fetch_one("SELECT owed FROM customers WHERE customer_id = %s;", (customer_id,))
-    owed = (row["owed"] if row else 0)
+    owed = row["owed"] if row else 0
 
     existing = fetch_one("""
-        SELECT d.status
-        FROM deliveries d
-        WHERE d.assignment_id = %s
-        AND d.delivery_date = %s                 
+        SELECT status
+        FROM deliveries
+        WHERE assignment_id = %s AND delivery_date = %s
         LIMIT 1;
     """, (assignment_id, delivery_date))
 
     old_status = existing["status"] if existing else None
 
-    # --- status for today ---
+
+    # ---  owed logic ---
     if old_status is None:
         if new_status == "missed":
             owed += 1
-
     else:
-        # 1. missed -> missed (same day) => no change
         if old_status == "missed" and new_status == "missed":
             pass
-
-        # 2. missed -> delivered (same-day correction)
+        
         elif old_status == "missed" and new_status == "delivered":
             if owed > 0:
                 owed -= 1
 
-        # 3. delivered -> missed (new missed today)
         elif old_status == "delivered" and new_status == "missed":
             owed += 1
 
-        # 4. delivered -> delivered => no change
         else:
             pass
 
+    
     execute("UPDATE customers SET owed = %s WHERE customer_id = %s;", (owed, customer_id))
 
 # ---------- Delivery functions ----------
