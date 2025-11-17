@@ -229,9 +229,10 @@ elif st.session_state["role"] == "driver":
                         upsert_delivery(
                             assignment_id=row["assignment_id"],
                             delivery_date=work_date,
-                            status=status_by_assignment[row["assignment_id"]].lower(),
+                            status=status,
                             marked_by=st.session_state.get("user_id")
                             )
+                        
                         update_owed_deliveries(row["customer_id"], status)
 
                     st.success("Statuses saved.")

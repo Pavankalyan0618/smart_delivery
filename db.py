@@ -82,25 +82,37 @@ def create_assignment(assign_date, customer_id, driver_id, created_by=None):
         raise   
             
 
-def update_owed_deliveries(customer_id, status):
+def update_owed_deliveries(customer_id, new_status):
     row = fetch_one("SELECT owed FROM customers WHERE customer_id = %s;", (customer_id,))
-    owed = (row["owed"] if row else 0) or 0
+    owed = (row["owed"] if row else 0)
 
-    # 🔍 Prevent duplicate owed increments
     existing = fetch_one("""
-        SELECT 1 FROM deliveries d
-        JOIN assignments a ON d.assignment_id = a.assignment_id
-        WHERE a.customer_id = %s AND d.status = 'missed'
-        AND d.delivery_date = CURRENT_DATE;
+        SELECT d.status
+        FROM deliveries d
+        JOIN assignments a ON a.assignment_id = d.assignment_id
+        WHERE a.customer_id = %s
+        AND d.delivery_date = CURRENT_DATE
+        LIMIT 1;                                  
     """, (customer_id,))
 
-    if status == "missed" and not existing:
-        owed += 1
-    elif status == "delivered" and owed > 0:
-        owed -= 1
+    old_status = existing["status"] if existing else None
 
-    execute("UPDATE customers SET owed = %s WHERE customer_id = %s;", (owed, customer_id))
+    #--- status today---
+    if old_status is None:
+        if new_status == "missed":
+            owed += 1
 
+    #---- status changes same day----
+    else:
+        if old_status == "missed" and new_status == "delivered":
+            if owed > 0:
+                owed -= 1
+        
+        #--- new missed delievry today---
+        elif old_status == "delivered" and new_status == "missed":
+            owed += 1
+
+    execute("UPDATE customers SET owed = %s WHERE customer_id = %s;", (owed, customer_id ))        
 
 # ---------- Delivery functions ----------
 def list_assignments_for_date(assign_date):
