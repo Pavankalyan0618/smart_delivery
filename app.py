@@ -8,7 +8,7 @@ from db import (
     list_customers, list_drivers,
     add_customer, add_driver, create_assignment,
     db_healthcheck,
-    list_assignments_for_date, upsert_delivery, copy_missed_to_date, delivery_kpis_for_date
+    list_assignments_for_date, upsert_delivery, delivery_kpis_for_date
 )
 from db import authenticate_user
 for key in ["logged_in", "role", "user_id", "driver_id", "last_error"]:
@@ -80,7 +80,6 @@ if st.session_state.get("role") == "admin":
             c_phone = st.text_input("Phone", key="c_phone")
             c_addr = st.text_area("Address", key="c_addr")
             c_plan = "Monthly"
-            st.text_input("plan", value=c_plan, disabled=True, key="c_plan")
             c_active = st.checkbox("Active", value=True, key="c_active")
             if st.button("Save Customer"):
                 if c_name.strip():

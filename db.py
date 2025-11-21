@@ -5,7 +5,6 @@ from psycopg2 import errors
 import logging
 
 # ---------- Database connection ----------
-print("🔵 CONNECTING TO DB:", st.secrets["DB_NAME"])
 def get_conn():
     return psycopg2.connect(
         host=st.secrets["DB_HOST"],
@@ -137,17 +136,6 @@ def upsert_delivery(assignment_id, delivery_date, status, marked_by=None):
         ON CONFLICT (assignment_id, delivery_date)
         DO UPDATE SET status = excluded.status, marked_by = excluded.marked_by;
     """, (assignment_id, delivery_date, status, marked_by))
-
-def copy_missed_to_date(prev_date, new_date):
-    execute("""
-        INSERT INTO deliveries (assignment_id, delivery_date, status, marked_by)
-        SELECT assignment_id, %s, 'missed', marked_by
-        FROM deliveries
-        WHERE delivery_date = %s AND status = 'missed'
-        AND assignment_id NOT IN (
-            SELECT assignment_id FROM deliveries WHERE delivery_date = %s
-        );
-    """, (new_date, prev_date, new_date))
 
 def delivery_kpis_for_date(delivery_date):
     return fetch_one("""
