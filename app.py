@@ -87,20 +87,23 @@ if st.session_state.get("role") == "admin":
             c_plan = "Monthly"
             c_active = st.checkbox("Active", value=True, key="c_active")
             c_location = st.text_input("Location", key="c_location")
+            c_sub_start = st.date_input("Subscription Start Date", key="C_sub_start")
+            c_sub_days = 30
+
             if st.button("Save Customer"):
                 if not c_phone.isdigit() or len(c_phone) != 10:
                     st.error("Invalid phone number. Please enter exactly 10 digits.")
                 
                 elif not c_name.strip():
-                    st.warning("Name is required.")
+                     st.warning("Name is required.")
                 
                 else:
                     try:
-                        add_customer(c_name, c_phone, c_addr, c_plan, c_active, c_location)
+                        add_customer(c_name, c_phone, c_addr, c_plan, c_active, c_location, c_sub_start, c_sub_days)
                         st.success("Customer saved.")
                     except Exception as e:
-                        st.session_state["last_error"] = str(e)
-                        st.error("Failed to save customer. See sidebar for details.")
+                     st.session_state["last_error"] = str(e)
+                     st.error("Failed to save customer. See sidebar for details.")
 
         
         # RIGHT: Add Driver
@@ -122,95 +125,95 @@ if st.session_state.get("role") == "admin":
         st.divider()
 
 # --------Assignment section--------------------
-st.markdown("**Assign Customer to Driver (for a date)**")
-try:
-    customers = list_customers()
-except Exception as e:
-    st.session_state["last_error"] = str(e)
-    st.error("Couldn't load customers from DB.")
-    customers = []
+        st.markdown("**Assign Customer to Driver (for a date)**")
+        try:
+            customers = list_customers()
+        except Exception as e:
+            st.session_state["last_error"] = str(e)
+            st.error("Couldn't load customers from DB.")
+            customers = []
 
-try:
-    drivers = list_drivers()
-except Exception as e:
-    st.session_state["last_error"] = str(e)
-    st.error("Couldn't load drivers from DB.")
-    drivers = []
+        try:
+            drivers = list_drivers()
+        except Exception as e:
+            st.session_state["last_error"] = str(e)
+            st.error("Couldn't load drivers from DB.")
+            drivers = []
 
-if not customers:
-    st.info("No customers yet. Add one above.")
-if not drivers:
-    st.info("No drivers yet. Add one above.")
+        if not customers:
+            st.info("No customers yet. Add one above.")
+        if not drivers:
+            st.info("No drivers yet. Add one above.")
 
-if customers and drivers:
+        if customers and drivers:
 
-    # ---------------- AREA DROPDOWN ----------------
-    areas = sorted({c["location"] for c in customers if c.get("location")})
-    selected_area = st.selectbox("Select Area / Location", ["-- Select Area --"] + areas)
+            # ---------------- AREA DROPDOWN ----------------
+            areas = sorted({c["location"] for c in customers if c.get("location")})
+            selected_area = st.selectbox("Select Area / Location", ["-- Select Area --"] + areas)
 
-    # Filter customers by area
-    if selected_area != "-- Select Area --":
-        customers = [c for c in customers if c.get("location") == selected_area]
+            # Filter customers by area
+            if selected_area != "-- Select Area --":
+                customers = [c for c in customers if c.get("location") == selected_area]
 
-    # ---------------- CUSTOMER LIST ----------------
-    st.markdown("### Customers in Selected Area")
+            # ---------------- CUSTOMER LIST ----------------
+            st.markdown("### Customers in Selected Area")
 
-    if not customers:
-        st.info("No customers found in this area.")
-    else:
-        for c in customers:
-            col1, col2, col3 = st.columns([1,5,1])
+            if not customers:
+                st.info("No customers found in this area.")
+            else:
+                for c in customers:
+                    col1, col2, col3 = st.columns([1,5,1])
 
-            with col1:
-                if st.checkbox("", key=f"select_{c['customer_id']}"):
-                    st.session_state["selected_customer_id"] = c["customer_id"]
-                    st.session_state["selected_customer_name"] = c["full_name"]
+                    with col1:
+                        if st.checkbox("", key=f"select_{c['customer_id']}"):
+                            st.session_state["selected_customer_id"] = c["customer_id"]
+                            st.session_state["selected_customer_name"] = c["full_name"]
 
-            with col2:
-                st.write(f"{c['full_name']}")
+                    with col2:
+                        st.write(f"{c['full_name']}")
 
-            with col3:
-                st.write(c["location"])
+                    with col3:
+                        st.write(c["location"])
 
-    # ---------------- SELECTED CUSTOMER ----------------
-    if "selected_customer_id" in st.session_state:
-        st.success(f"Selected Customer: {st.session_state['selected_customer_name']}")
+            # ---------------- SELECTED CUSTOMER ----------------
+            if "selected_customer_id" in st.session_state:
+                st.success(f"Selected Customer: {st.session_state['selected_customer_name']}")
 
-        # DRIVER MAP
-        driv_map = {d["full_name"]: d["driver_id"] for d in drivers}
+                # DRIVER MAP
+                driv_map = {d["full_name"]: d["driver_id"] for d in drivers}
 
-        sel_driv = st.selectbox("Driver", list(driv_map.keys()), key="assign_driver")
-        sel_date = st.date_input("Assignment date", value=date.today(), key="assign_date")
+                sel_driv = st.selectbox("Driver", list(driv_map.keys()), key="assign_driver")
+                sel_date = st.date_input("Assignment date", value=date.today(), key="assign_date")
 
-        if st.button("Create Assignment"):
-            try:
-                create_assignment(
-                    sel_date,
-                    st.session_state["selected_customer_id"],
-                    driv_map[sel_driv]
-                )
-                st.success("Assignment created successfully.")
-                del st.session_state["selected_customer_id"]
-                del st.session_state["selected_customer_name"]
-            except ValueError as ve:
-                st.error(str(ve))
-            except Exception as e:
-                st.session_state["last_error"] = str(e)
-                st.error("Failed to create assignment. See sidebar.")
+                if st.button("Create Assignment"):
+                    try:
+                        create_assignment(
+                            sel_date,
+                            st.session_state["selected_customer_id"],
+                            driv_map[sel_driv]
+                        )
+                        st.success("Assignment created successfully.")
+                        del st.session_state["selected_customer_id"]
+                        del st.session_state["selected_customer_name"]
+                    except ValueError as ve:
+                        st.error(str(ve))
+                    except Exception as e:
+                        st.session_state["last_error"] = str(e)
+                        st.error("Failed to create assignment. See sidebar.")
         st.divider()
 
         st.markdown("**Customers (live from DB)**")
-        if customers:
-            st.dataframe(customers, use_container_width=True)
-        else:
-            st.info("No customers to display.")
+        
+        customers = list_customers()
+        df = pd.DataFrame(customers)
+    
+        if "owed" not in df.columns:
+            df["owed"] = 0
 
-        st.markdown("**Drivers (live from DB)**")
-        if drivers:
-            st.dataframe(drivers, use_container_width=True)
-        else:
-            st.info("No drivers to display.")
+        if "subscription_start" in df.columns:
+            df["subscription_end"] = df["subscription_start"] + pd.to_timedelta(df["subscription_days"] + df["owed"], unit="D")
 
+        st.dataframe(df, use_container_width=True)
 # -------------------- Driver Tab --------------------
 if st.session_state.get("role") == "admin":
     with tabs[1]:

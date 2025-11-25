@@ -58,11 +58,11 @@ def list_drivers():
         ORDER BY full_name;
     """)
 
-def add_customer(full_name, phone, address, plan_name, is_active, location):
+def add_customer(full_name, phone, address, plan_name, is_active, location, subscription_start, subscription_days):
     execute("""
-        INSERT INTO customers (full_name, phone_number, address, plan_name, is_active, location)
-        VALUES (%s, %s, %s, %s, %s, %s);
-    """, (full_name, phone or "", address, plan_name, is_active, location))
+        INSERT INTO customers (full_name, phone_number, address, plan_name, is_active, location, subscription_start, subscription_days)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+    """, (full_name, phone or "", address, plan_name, is_active, location, subscription_start, subscription_days))
 
 def add_driver(full_name, phone):
     execute("""
