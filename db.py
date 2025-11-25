@@ -46,7 +46,7 @@ def db_healthcheck():
 # ---------- Admin functions ----------
 def list_customers():
     return fetch_all("""
-        SELECT customer_id, full_name, plan_name, is_active
+        SELECT customer_id, full_name, Phone_number, address, plan_name, is_active, location
         FROM customers
         ORDER BY full_name;
     """)
@@ -58,11 +58,11 @@ def list_drivers():
         ORDER BY full_name;
     """)
 
-def add_customer(full_name, phone, address, plan_name, is_active=True):
+def add_customer(full_name, phone, address, plan_name, is_active, location):
     execute("""
-        INSERT INTO customers (full_name, phone_number, address, plan_name, is_active)
-        VALUES (%s, %s, %s, %s, %s);
-    """, (full_name, phone or "", address, plan_name, is_active))
+        INSERT INTO customers (full_name, phone_number, address, plan_name, is_active, location)
+        VALUES (%s, %s, %s, %s, %s, %s);
+    """, (full_name, phone or "", address, plan_name, is_active, location))
 
 def add_driver(full_name, phone):
     execute("""

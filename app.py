@@ -77,20 +77,30 @@ if st.session_state.get("role") == "admin":
         with col1:
             st.markdown("**Add Customer**")
             c_name = st.text_input("Full name", key="c_name")
-            c_phone = st.text_input("Phone", key="c_phone")
+            c_phone = st.text_input("Phone Number (10 digits)", max_chars=10, key="c_phone")
+            if c_phone and (not c_phone.isdigit()):
+                st.warning("phone number must contain only digits.")
+            elif c_phone and len(c_phone) != 10:
+                st.warning("Phone number must be exactly 10 digits.")
+
             c_addr = st.text_area("Address", key="c_addr")
             c_plan = "Monthly"
             c_active = st.checkbox("Active", value=True, key="c_active")
+            c_location = st.text_input("Location", key="c_location")
             if st.button("Save Customer"):
-                if c_name.strip():
+                if not c_phone.isdigit() or len(c_phone) != 10:
+                    st.error("Invalid phone number. Please enter exactly 10 digits.")
+                
+                elif not c_name.strip():
+                    st.warning("Name is required.")
+                
+                else:
                     try:
-                        add_customer(c_name, c_phone, c_addr, c_plan, c_active)
+                        add_customer(c_name, c_phone, c_addr, c_plan, c_active, c_location)
                         st.success("Customer saved.")
                     except Exception as e:
                         st.session_state["last_error"] = str(e)
                         st.error("Failed to save customer. See sidebar for details.")
-                else:
-                    st.warning("Name is required.")
 
         
         # RIGHT: Add Driver
@@ -111,45 +121,82 @@ if st.session_state.get("role") == "admin":
 
         st.divider()
 
-        # Assignment section
-        st.markdown("**Assign Customer to Driver (for a date)**")
-        try:
-            customers = list_customers()
-        except Exception as e:
-            st.session_state["last_error"] = str(e)
-            st.error("Couldn't load customers from DB.")
-            customers = []
+# --------Assignment section--------------------
+st.markdown("**Assign Customer to Driver (for a date)**")
+try:
+    customers = list_customers()
+except Exception as e:
+    st.session_state["last_error"] = str(e)
+    st.error("Couldn't load customers from DB.")
+    customers = []
 
-        try:
-            drivers = list_drivers()
-        except Exception as e:
-            st.session_state["last_error"] = str(e)
-            st.error("Couldn't load drivers from DB.")
-            drivers = []
+try:
+    drivers = list_drivers()
+except Exception as e:
+    st.session_state["last_error"] = str(e)
+    st.error("Couldn't load drivers from DB.")
+    drivers = []
 
-        if not customers:
-            st.info("No customers yet. Add one above.")
-        if not drivers:
-            st.info("No drivers yet. Add one above.")
+if not customers:
+    st.info("No customers yet. Add one above.")
+if not drivers:
+    st.info("No drivers yet. Add one above.")
 
-        if customers and drivers:
-            cust_map = {c["full_name"]: c["customer_id"] for c in customers}
-            driv_map = {d["full_name"]: d["driver_id"] for d in drivers}
+if customers and drivers:
 
-            sel_cust = st.selectbox("Customer", list(cust_map.keys()), key="assign_customer")
-            sel_driv = st.selectbox("Driver", list(driv_map.keys()), key="assign_driver")
-            sel_date = st.date_input("Assignment date", value=date.today(), key="assign_date")
+    # ---------------- AREA DROPDOWN ----------------
+    areas = sorted({c["location"] for c in customers if c.get("location")})
+    selected_area = st.selectbox("Select Area / Location", ["-- Select Area --"] + areas)
 
-            if st.button("Create Assignment"):
-                try:
-                    create_assignment(sel_date, cust_map[sel_cust], driv_map[sel_driv])
-                    st.success("Assignment created successfully.")
-                except ValueError as ve:
-                    st.error(str(ve))           # shows duplicate warning   
-                except Exception as e:
-                    st.session_state["last_error"] = str(e)
-                    st.error("Failed to create assignment. See sidebar for details.")
+    # Filter customers by area
+    if selected_area != "-- Select Area --":
+        customers = [c for c in customers if c.get("location") == selected_area]
 
+    # ---------------- CUSTOMER LIST ----------------
+    st.markdown("### Customers in Selected Area")
+
+    if not customers:
+        st.info("No customers found in this area.")
+    else:
+        for c in customers:
+            col1, col2, col3 = st.columns([1,5,1])
+
+            with col1:
+                if st.checkbox("", key=f"select_{c['customer_id']}"):
+                    st.session_state["selected_customer_id"] = c["customer_id"]
+                    st.session_state["selected_customer_name"] = c["full_name"]
+
+            with col2:
+                st.write(f"{c['full_name']}")
+
+            with col3:
+                st.write(c["location"])
+
+    # ---------------- SELECTED CUSTOMER ----------------
+    if "selected_customer_id" in st.session_state:
+        st.success(f"Selected Customer: {st.session_state['selected_customer_name']}")
+
+        # DRIVER MAP
+        driv_map = {d["full_name"]: d["driver_id"] for d in drivers}
+
+        sel_driv = st.selectbox("Driver", list(driv_map.keys()), key="assign_driver")
+        sel_date = st.date_input("Assignment date", value=date.today(), key="assign_date")
+
+        if st.button("Create Assignment"):
+            try:
+                create_assignment(
+                    sel_date,
+                    st.session_state["selected_customer_id"],
+                    driv_map[sel_driv]
+                )
+                st.success("Assignment created successfully.")
+                del st.session_state["selected_customer_id"]
+                del st.session_state["selected_customer_name"]
+            except ValueError as ve:
+                st.error(str(ve))
+            except Exception as e:
+                st.session_state["last_error"] = str(e)
+                st.error("Failed to create assignment. See sidebar.")
         st.divider()
 
         st.markdown("**Customers (live from DB)**")
@@ -262,7 +309,7 @@ if st.session_state.get("role") == "admin":
             st.error(f"Error loading KPIs: {e}")
 
         st.divider()
-        st.subheader("Customer-Wise Owed Deliveries")
+        st.subheader("Customer-Wise  Carry-Forward Deliveries")
 
         # --- Customer-wise owed table ---
         try:
@@ -275,10 +322,61 @@ if st.session_state.get("role") == "admin":
 
             if owed_data:
                 df = pd.DataFrame(owed_data)
+                df.rename(columns={"owed": "Carry-Forward"}, inplace=True)
                 st.dataframe(df, use_container_width=True)
-                total_owed = df["owed"].sum()
-                st.metric("Total Owed Deliveries (All Customers)", total_owed)
+                total_owed = df["Carry-Forward"].sum()
+                st.metric("Total Carry-Forward Deliveries (All Customers)", total_owed)
             else:
-                st.info("No owed deliveries right now.")
+                st.info("No carry-forward deliveries right now.")
         except Exception as e:
-            st.error(f"Error loading owed deliveries: {e}")
+            st.error(f"Error loading carry-forward deliveries: {e}")
+
+#------- Monthly-Reports---------
+    st.divider()
+st.subheader("Monthly-wise Missed Deliveries")
+
+try:
+    monthly = fetch_all("""
+        SELECT DATE_TRUNC('month', delivery_date) AS month,
+               COUNT(*) AS missed_count
+        FROM deliveries
+        WHERE status = 'missed'
+        GROUP BY 1
+        ORDER BY 1;
+    """)
+
+    if monthly:
+        df_m = pd.DataFrame(monthly, columns=["month", "missed_count"])
+        df_m["month"] = df_m["month"].dt.strftime("%Y-%m")
+        st.dataframe(df_m, use_container_width=True)
+    else:
+        st.info("No missed deliveries found for any month.")
+
+except Exception as e:
+    st.error(f"Error loading monthly missed deliveries: {e}")
+
+
+
+st.divider()
+st.subheader("Driver-wise Missed Deliveries")
+
+try:
+    driver_missed = fetch_all("""
+        SELECT d.full_name AS driver_name,
+               COUNT(*) AS missed_count
+        FROM deliveries del
+        JOIN assignments a ON del.assignment_id = a.assignment_id
+        JOIN drivers d ON a.driver_id = d.driver_id
+        WHERE del.status = 'missed'
+        GROUP BY d.full_name
+        ORDER BY missed_count DESC;
+    """)
+
+    if driver_missed:
+        df_d = pd.DataFrame(driver_missed, columns=["driver_name", "missed_count"])
+        st.dataframe(df_d, use_container_width=True)
+    else:
+        st.info("No missed deliveries by any driver.")
+
+except Exception as e:
+    st.error(f"Error loading driver-wise missed deliveries: {e}")
