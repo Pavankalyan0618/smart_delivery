@@ -87,7 +87,7 @@ if st.session_state.get("role") == "admin":
             c_plan = "Monthly"
             c_active = st.checkbox("Active", value=True, key="c_active")
             c_location = st.text_input("Location", key="c_location")
-            c_sub_start = st.date_input("Subscription Start Date", key="C_sub_start")
+            c_sub_start = st.date_input("Subscription Start Date", key="c_sub_start")
             c_sub_days = 30
 
             if st.button("Save Customer"):
@@ -206,13 +206,34 @@ if st.session_state.get("role") == "admin":
         
         customers = list_customers()
         df = pd.DataFrame(customers)
-    
+
+#------------- OWED EXISTs ------------------
+
         if "owed" not in df.columns:
             df["owed"] = 0
 
-        if "subscription_start" in df.columns:
-            df["subscription_end"] = df["subscription_start"] + pd.to_timedelta(df["subscription_days"] + df["owed"], unit="D")
+#-------------- SUBCRIPTION DAYS EXISTS ---------------
+        if "subscription_days" not in df.columns:
+            df["subscription_days"] = 30
 
+#-------------- SUBSCRIPTION END CALCULATION ---------------
+        if "subscription_start" in df.columns:
+            df["subscription_end"] = df["subscription_start"] + pd.to_timedelta(
+                df["subscription_days"] + df["owed"],
+                unit="D"
+            )
+        df["subscription_end"] = pd.to_datetime(df["subscription_end"], errors="coerce")
+        
+        #-------------- SUBSCRIPTION STATUS ------------------------
+        if "subscription_end" in df.columns:
+            today = pd.Timestamp.today()
+            df["subscription_status"] = df["subscription_end"].apply(
+                lambda d: (
+                    "Expired" if d < today
+                    else "Ending Soon" if (d - today).days <= 3
+                    else "Active"
+                )
+            )
         st.dataframe(df, use_container_width=True)
 # -------------------- Driver Tab --------------------
 if st.session_state.get("role") == "admin":
@@ -331,55 +352,56 @@ if st.session_state.get("role") == "admin":
                 st.metric("Total Carry-Forward Deliveries (All Customers)", total_owed)
             else:
                 st.info("No carry-forward deliveries right now.")
+
         except Exception as e:
             st.error(f"Error loading carry-forward deliveries: {e}")
 
-#------- Monthly-Reports---------
-    st.divider()
-st.subheader("Monthly-wise Missed Deliveries")
+        st.divider()
+        st.subheader("Monthly-wise Missed Deliveries")
 
-try:
-    monthly = fetch_all("""
-        SELECT DATE_TRUNC('month', delivery_date) AS month,
-               COUNT(*) AS missed_count
-        FROM deliveries
-        WHERE status = 'missed'
-        GROUP BY 1
-        ORDER BY 1;
-    """)
+        # --- Monthly missed reports ---
+        try:
+            monthly = fetch_all("""
+                SELECT DATE_TRUNC('month', delivery_date) AS month,
+                       COUNT(*) AS missed_count
+                FROM deliveries
+                WHERE status = 'missed'
+                GROUP BY 1
+                ORDER BY 1;
+            """)
 
-    if monthly:
-        df_m = pd.DataFrame(monthly, columns=["month", "missed_count"])
-        df_m["month"] = df_m["month"].dt.strftime("%Y-%m")
-        st.dataframe(df_m, use_container_width=True)
-    else:
-        st.info("No missed deliveries found for any month.")
+            if monthly:
+                df_m = pd.DataFrame(monthly, columns=["month", "missed_count"])
+                df_m["month"] = df_m["month"].dt.strftime("%Y-%m")
+                st.dataframe(df_m, use_container_width=True)
+            else:
+                st.info("No missed deliveries found for any month.")
 
-except Exception as e:
-    st.error(f"Error loading monthly missed deliveries: {e}")
+        except Exception as e:
+            st.error(f"Error loading monthly missed deliveries: {e}")
 
+        st.divider()
+        st.subheader("Driver-wise Missed Deliveries")
 
+        # --- Driver missed reports ---
+        try:
+            driver_missed = fetch_all("""
+                SELECT d.full_name AS driver_name,
+                       COUNT(*) AS missed_count
+                FROM deliveries del
+                JOIN assignments a ON del.assignment_id = a.assignment_id
+                JOIN drivers d ON a.driver_id = d.driver_id
+                WHERE del.status = 'missed'
+                GROUP BY d.full_name
+                ORDER BY missed_count DESC;
+            """)
 
-st.divider()
-st.subheader("Driver-wise Missed Deliveries")
+            if driver_missed:
+                df_d = pd.DataFrame(driver_missed, columns=["driver_name", "missed_count"])
+                st.dataframe(df_d, use_container_width=True)
+            else:
+                st.info("No missed deliveries by any driver.")
 
-try:
-    driver_missed = fetch_all("""
-        SELECT d.full_name AS driver_name,
-               COUNT(*) AS missed_count
-        FROM deliveries del
-        JOIN assignments a ON del.assignment_id = a.assignment_id
-        JOIN drivers d ON a.driver_id = d.driver_id
-        WHERE del.status = 'missed'
-        GROUP BY d.full_name
-        ORDER BY missed_count DESC;
-    """)
+        except Exception as e:
+            st.error(f"Error loading driver-wise missed deliveries: {e}")
 
-    if driver_missed:
-        df_d = pd.DataFrame(driver_missed, columns=["driver_name", "missed_count"])
-        st.dataframe(df_d, use_container_width=True)
-    else:
-        st.info("No missed deliveries by any driver.")
-
-except Exception as e:
-    st.error(f"Error loading driver-wise missed deliveries: {e}")

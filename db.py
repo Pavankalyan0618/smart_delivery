@@ -46,9 +46,20 @@ def db_healthcheck():
 # ---------- Admin functions ----------
 def list_customers():
     return fetch_all("""
-        SELECT customer_id, full_name, Phone_number, address, plan_name, is_active, location
+        SELECT 
+            customer_id,
+            full_name,
+            phone_number,
+            address,
+            plan_name,
+            is_active,
+            location,
+            owed,
+            subscription_start,
+            subscription_days,
+            subscription_end
         FROM customers
-        ORDER BY full_name;
+        ORDER BY customer_id;
     """)
 
 def list_drivers():
@@ -111,11 +122,11 @@ def update_owed_deliveries(assignment_id, customer_id, new_status, delivery_date
         elif old_status == "delivered" and new_status == "missed":
             owed += 1
 
-        else:
-            pass
-
     
-    execute("UPDATE customers SET owed = %s WHERE customer_id = %s;", (owed, customer_id))
+    execute("""UPDATE customers SET owed = %s,
+                subscription_end = subscription_start + (subscription_days + %s) * INTERVAL '1 day' 
+             WHERE customer_id = %s;
+             """,  (owed, owed, customer_id))
 
 # ---------- Delivery functions ----------
 def list_assignments_for_date(assign_date):
