@@ -47,17 +47,8 @@ def db_healthcheck():
 def list_customers():
     return fetch_all("""
         SELECT 
-            customer_id,
-            full_name,
-            phone_number,
-            address,
-            plan_name,
-            is_active,
-            location,
-            owed,
-            subscription_start,
-            subscription_days,
-            subscription_end
+            customer_id, full_name, phone_number, address, plan_name, is_active, location, owed, subscription_start,
+            subscription_days, subscription_end
         FROM customers
         ORDER BY customer_id;
     """)

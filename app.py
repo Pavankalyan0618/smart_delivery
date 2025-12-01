@@ -223,7 +223,7 @@ if st.session_state.get("role") == "admin":
                 unit="D"
             )
         df["subscription_end"] = pd.to_datetime(df["subscription_end"], errors="coerce")
-        
+
         #-------------- SUBSCRIPTION STATUS ------------------------
         if "subscription_end" in df.columns:
             today = pd.Timestamp.today()
@@ -234,6 +234,8 @@ if st.session_state.get("role") == "admin":
                     else "Active"
                 )
             )
+        # Rename "owed" column before rendering
+        df.rename(columns={"owed": "Carry Forward Deliveries"}, inplace=True)
         st.dataframe(df, use_container_width=True)
 # -------------------- Driver Tab --------------------
 if st.session_state.get("role") == "admin":
@@ -317,91 +319,102 @@ elif st.session_state["role"] == "driver":
 # -------------------- Dashboard Tab -----------------
 if st.session_state.get("role") == "admin":
     with tabs[2]:
-        st.subheader("Dashboard – KPIs")
+        st.subheader("KPI Date Range")
+        st.write("")
 
-        kpi_date = st.date_input("KPI Date", value=date.today())
+        # KPI DATE RANGE
+        with st.container():
+            col1, col2 = st.columns(2)
+            from_date = col1.date_input("From Date", value=date.today())
+            to_date = col2.date_input("To Date", value=date.today())
 
-        # --- KPI Metrics (Delivered, Missed, Pending, Total) ---
-        try:
-            k = delivery_kpis_for_date(kpi_date)
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Delivered", k.get("delivered", 0))
-            col2.metric("Missed", k.get("missed", 0))
-            col3.metric("Pending", k.get("pending", 0))
-            col4.metric("Total", k.get("total", 0))
-        except Exception as e:
-            st.error(f"Error loading KPIs: {e}")
+            if from_date > to_date:
+                st.error("From Date cannot be after To Date.")
+            else:
+                rows = fetch_all("""
+                    SELECT status FROM deliveries
+                    WHERE delivery_date BETWEEN %s AND %s;
+                """, (from_date, to_date))
+
+                delivered = sum(1 for r in rows if r["status"] == "delivered")
+                missed = sum(1 for r in rows if r["status"] == "missed")
+                total = len(rows)
+
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Delivered", delivered)
+                k2.metric("Missed", missed)
+                k3.metric("Total Deliveries", total)
 
         st.divider()
-        st.subheader("Customer-Wise  Carry-Forward Deliveries")
 
-        # --- Customer-wise owed table ---
-        try:
-            owed_data = fetch_all("""
-                SELECT customer_id, full_name, owed
-                FROM customers
-                WHERE owed > 0
-                ORDER BY owed DESC;
-            """)
+        # TWO COLUMN LAYOUT
+        left, right = st.columns(2)
 
-            if owed_data:
-                df = pd.DataFrame(owed_data)
-                df.rename(columns={"owed": "Carry-Forward"}, inplace=True)
-                st.dataframe(df, use_container_width=True)
-                total_owed = df["Carry-Forward"].sum()
-                st.metric("Total Carry-Forward Deliveries (All Customers)", total_owed)
+        # LEFT: CARRY-FORWARD
+        with left:
+            st.subheader("Carry-Forward Deliveries")
+            st.write("")
+            try:
+                owed_data = fetch_all("""
+                    SELECT customer_id, full_name, owed
+                    FROM customers
+                    WHERE owed > 0
+                    ORDER BY owed DESC;
+                """)
+
+                if owed_data:
+                    df = pd.DataFrame(owed_data)
+                    df.rename(columns={"owed": "Carry Forward"}, inplace=True)
+                    st.dataframe(df, use_container_width=True)
+                    total_owed = df["Carry Forward"].sum()
+                    st.metric("Total Carry Forward Deliveries", total_owed)
+                else:
+                    st.info("No carry-forward deliveries right now.")
+            except Exception as e:
+                st.error(f"Error loading carry-forward: {e}")
+
+        # RIGHT: DRIVER MISSED
+        with right:
+            st.subheader("Driver-wise Missed Deliveries")
+            st.write("")
+
+            drivers = list_drivers()
+            driver_names = [d["full_name"] for d in drivers]
+            selected_driver = st.selectbox("Select Driver", driver_names)
+
+            driver_map = {d["full_name"]: d["driver_id"] for d in drivers}
+            driver_id = driver_map[selected_driver]
+
+            d1, d2 = st.columns(2)
+            d_from = d1.date_input("From Date (Driver)", value=date.today())
+            d_to = d2.date_input("To Date (Driver)", value=date.today())
+
+            if d_from > d_to:
+                st.error("From Date cannot be after To Date.")
             else:
-                st.info("No carry-forward deliveries right now.")
+                try:
+                    query = """
+                        SELECT d.full_name AS driver_name,
+                               COUNT(*) AS missed_count
+                        FROM deliveries del
+                        JOIN assignments a ON del.assignment_id = a.assignment_id
+                        JOIN drivers d ON a.driver_id = d.driver_id
+                        WHERE del.status = 'missed'
+                        AND d.driver_id = %s
+                        AND del.delivery_date BETWEEN %s AND %s
+                        GROUP BY d.full_name;
+                    """
+                    rows = fetch_all(query, (driver_id, d_from, d_to))
 
-        except Exception as e:
-            st.error(f"Error loading carry-forward deliveries: {e}")
+                    if rows:
+                        df_d = pd.DataFrame(rows)
+                        st.dataframe(df_d, use_container_width=True)
+                    else:
+                        st.info(f"No missed deliveries for {selected_driver} in this range.")
+                except Exception as e:
+                    st.error(f"Error loading driver missed: {e}")
 
-        st.divider()
-        st.subheader("Monthly-wise Missed Deliveries")
 
-        # --- Monthly missed reports ---
-        try:
-            monthly = fetch_all("""
-                SELECT DATE_TRUNC('month', delivery_date) AS month,
-                       COUNT(*) AS missed_count
-                FROM deliveries
-                WHERE status = 'missed'
-                GROUP BY 1
-                ORDER BY 1;
-            """)
 
-            if monthly:
-                df_m = pd.DataFrame(monthly, columns=["month", "missed_count"])
-                df_m["month"] = df_m["month"].dt.strftime("%Y-%m")
-                st.dataframe(df_m, use_container_width=True)
-            else:
-                st.info("No missed deliveries found for any month.")
 
-        except Exception as e:
-            st.error(f"Error loading monthly missed deliveries: {e}")
-
-        st.divider()
-        st.subheader("Driver-wise Missed Deliveries")
-
-        # --- Driver missed reports ---
-        try:
-            driver_missed = fetch_all("""
-                SELECT d.full_name AS driver_name,
-                       COUNT(*) AS missed_count
-                FROM deliveries del
-                JOIN assignments a ON del.assignment_id = a.assignment_id
-                JOIN drivers d ON a.driver_id = d.driver_id
-                WHERE del.status = 'missed'
-                GROUP BY d.full_name
-                ORDER BY missed_count DESC;
-            """)
-
-            if driver_missed:
-                df_d = pd.DataFrame(driver_missed, columns=["driver_name", "missed_count"])
-                st.dataframe(df_d, use_container_width=True)
-            else:
-                st.info("No missed deliveries by any driver.")
-
-        except Exception as e:
-            st.error(f"Error loading driver-wise missed deliveries: {e}")
 
