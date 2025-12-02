@@ -8,7 +8,8 @@ from db import (
     list_customers, list_drivers,
     add_customer, add_driver, create_assignment,
     db_healthcheck,
-    list_assignments_for_date, upsert_delivery, delivery_kpis_for_date
+    list_assignments_for_date, upsert_delivery, delivery_kpis_for_date,
+    create_driver_user
 )
 from db import authenticate_user
 for key in ["logged_in", "role", "user_id", "driver_id", "last_error"]:
@@ -85,7 +86,6 @@ if st.session_state.get("role") == "admin":
 
             c_addr = st.text_area("Address", key="c_addr")
             c_plan = "Monthly"
-            c_active = st.checkbox("Active", value=True, key="c_active")
             c_location = st.text_input("Location", key="c_location")
             c_sub_start = st.date_input("Subscription Start Date", key="c_sub_start")
             c_sub_days = 30
@@ -99,7 +99,7 @@ if st.session_state.get("role") == "admin":
                 
                 else:
                     try:
-                        add_customer(c_name, c_phone, c_addr, c_plan, c_active, c_location, c_sub_start, c_sub_days)
+                        add_customer(c_name, c_phone, c_addr, c_plan, c_location, c_sub_start, c_sub_days)
                         st.success("Customer saved.")
                     except Exception as e:
                      st.session_state["last_error"] = str(e)
@@ -111,16 +111,27 @@ if st.session_state.get("role") == "admin":
             st.markdown("**Add Driver**")
             d_name = st.text_input("Driver name", key="d_name")
             d_phone = st.text_input("Driver phone", key="d_phone")
+
             if st.button("Save Driver"):
-                if d_name.strip():
+                if d_name.strip() and d_phone.strip():
                     try:
-                        add_driver(d_name, d_phone)
-                        st.success("Driver saved.")
+                        # Save driver and get driver_id
+                        driver_id = add_driver(d_name, d_phone)
+
+                        # AUTO‑CREATE USER ACCOUNT FOR DRIVER
+                        create_driver_user(
+                            username=d_phone,
+                            password="1234",
+                            driver_id=driver_id
+                        )
+
+                        st.success(f"Driver saved. Login created: Username = {d_phone}, Password = 1234")
+
                     except Exception as e:
                         st.session_state["last_error"] = str(e)
-                        st.error("Failed to save driver. See sidebar for details.")
+                        st.error("Failed to save driver or create login. See sidebar for details.")
                 else:
-                    st.warning("Driver name is required.")
+                    st.warning("Driver name and phone are required.")
 
         st.divider()
 
@@ -151,35 +162,20 @@ if st.session_state.get("role") == "admin":
             areas = sorted({c["location"] for c in customers if c.get("location")})
             selected_area = st.selectbox("Select Area / Location", ["-- Select Area --"] + areas)
 
-            # Filter customers by area
             if selected_area != "-- Select Area --":
                 customers = [c for c in customers if c.get("location") == selected_area]
 
             # ---------------- CUSTOMER LIST ----------------
             st.markdown("### Customers in Selected Area")
 
-            if not customers:
-                st.info("No customers found in this area.")
-            else:
-                for c in customers:
-                    col1, col2, col3 = st.columns([1,5,1])
+            customer_names = [c["full_name"] for c in customers]
+            selected_customers = st.multiselect("Select Customers", customer_names, key="multi_customers")
 
-                    with col1:
-                        if st.checkbox("", key=f"select_{c['customer_id']}"):
-                            st.session_state["selected_customer_id"] = c["customer_id"]
-                            st.session_state["selected_customer_name"] = c["full_name"]
-
-                    with col2:
-                        st.write(f"{c['full_name']}")
-
-                    with col3:
-                        st.write(c["location"])
+            name_to_id = {c["full_name"]: c["customer_id"] for c in customers}
 
             # ---------------- SELECTED CUSTOMER ----------------
-            if "selected_customer_id" in st.session_state:
-                st.success(f"Selected Customer: {st.session_state['selected_customer_name']}")
-
-                # DRIVER MAP
+            if selected_customers:
+               
                 driv_map = {d["full_name"]: d["driver_id"] for d in drivers}
 
                 sel_driv = st.selectbox("Driver", list(driv_map.keys()), key="assign_driver")
@@ -187,14 +183,12 @@ if st.session_state.get("role") == "admin":
 
                 if st.button("Create Assignment"):
                     try:
-                        create_assignment(
-                            sel_date,
-                            st.session_state["selected_customer_id"],
-                            driv_map[sel_driv]
-                        )
-                        st.success("Assignment created successfully.")
-                        del st.session_state["selected_customer_id"]
-                        del st.session_state["selected_customer_name"]
+                        for name in selected_customers:
+                            cid = name_to_id[name]
+                            create_assignment(sel_date, cid, driv_map[sel_driv])
+
+                        st.success("Assignments created successfully.")
+                        st.session_state["multi_customers"] = []
                     except ValueError as ve:
                         st.error(str(ve))
                     except Exception as e:
@@ -216,26 +210,30 @@ if st.session_state.get("role") == "admin":
         if "subscription_days" not in df.columns:
             df["subscription_days"] = 30
 
-#-------------- SUBSCRIPTION END CALCULATION ---------------
-        if "subscription_start" in df.columns:
+#-------------- SAFE SUBSCRIPTION END CALCULATION ---------------
+        if not df.empty and "subscription_start" in df.columns:
+            
+            df["subscription_start"] = pd.to_datetime(df["subscription_start"], errors="coerce")
+
+            
             df["subscription_end"] = df["subscription_start"] + pd.to_timedelta(
-                df["subscription_days"] + df["owed"],
+                df["subscription_days"].fillna(30) + df["owed"].fillna(0),
                 unit="D"
             )
-        df["subscription_end"] = pd.to_datetime(df["subscription_end"], errors="coerce")
+        else:
+            df["subscription_end"] = pd.NaT
 
-        #-------------- SUBSCRIPTION STATUS ------------------------
-        if "subscription_end" in df.columns:
+#--------------  SUBSCRIPTION STATUS ------------------------
+        if not df.empty and "subscription_end" in df.columns:
             today = pd.Timestamp.today()
+
             df["subscription_status"] = df["subscription_end"].apply(
-                lambda d: (
-                    "Expired" if d < today
-                    else "Ending Soon" if (d - today).days <= 3
-                    else "Active"
-                )
+                lambda d: ("Active" if d >= today else "Expired") if pd.notnull(d) else "Unknown"
             )
-        # Rename "owed" column before rendering
-        df.rename(columns={"owed": "Carry Forward Deliveries"}, inplace=True)
+        else:
+            df["subscription_status"] = "Unknown"
+
+        # DISPLAY CUSTOMERS LIVE FROM DB
         st.dataframe(df, use_container_width=True)
 # -------------------- Driver Tab --------------------
 if st.session_state.get("role") == "admin":
@@ -379,11 +377,20 @@ if st.session_state.get("role") == "admin":
             st.write("")
 
             drivers = list_drivers()
+
+            if not drivers:
+                st.info("No drivers available.")
+                st.stop()
+
             driver_names = [d["full_name"] for d in drivers]
             selected_driver = st.selectbox("Select Driver", driver_names)
 
             driver_map = {d["full_name"]: d["driver_id"] for d in drivers}
-            driver_id = driver_map[selected_driver]
+            driver_id = driver_map.get(selected_driver)
+
+            if driver_id is None:
+                st.warning("Invalid driver selection.")
+                st.stop()
 
             d1, d2 = st.columns(2)
             d_from = d1.date_input("From Date (Driver)", value=date.today())

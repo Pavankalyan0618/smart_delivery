@@ -47,7 +47,7 @@ def db_healthcheck():
 def list_customers():
     return fetch_all("""
         SELECT 
-            customer_id, full_name, phone_number, address, plan_name, is_active, location, owed, subscription_start,
+            customer_id, full_name, phone_number, address, plan_name, location, owed, subscription_start,
             subscription_days, subscription_end
         FROM customers
         ORDER BY customer_id;
@@ -60,17 +60,25 @@ def list_drivers():
         ORDER BY full_name;
     """)
 
-def add_customer(full_name, phone, address, plan_name, is_active, location, subscription_start, subscription_days):
+def add_customer(full_name, phone, address, plan_name, location, subscription_start, subscription_days):
     execute("""
-        INSERT INTO customers (full_name, phone_number, address, plan_name, is_active, location, subscription_start, subscription_days)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
-    """, (full_name, phone or "", address, plan_name, is_active, location, subscription_start, subscription_days))
+        INSERT INTO customers (full_name, phone_number, address, plan_name, location, subscription_start, subscription_days)
+        VALUES (%s, %s, %s, %s, %s, %s,);
+    """, (full_name, phone or "", address, plan_name, location, subscription_start, subscription_days))
 
 def add_driver(full_name, phone):
-    execute("""
+    row = fetch_all("""
         INSERT INTO drivers (full_name, phone)
-        VALUES (%s, %s);
+        VALUES (%s, %s)
+        RETURNING driver_id;
     """, (full_name, phone))
+    return row[0]["driver_id"]
+
+def create_driver_user(username, password, driver_id):
+    execute("""
+        INSERT INTO users (username, password, role, driver_id)
+        VALUES (%s, %s, 'driver', %s);
+    """, (username, password, driver_id))
 
 def create_assignment(assign_date, customer_id, driver_id, created_by=None):
     try:
@@ -153,10 +161,10 @@ def delivery_kpis_for_date(delivery_date):
 # ---------- Authentication ----------
 def authenticate_user(username, password):
     sql = """
-    SELECT u.user_id, u.username, u.role, d.driver_id
+    SELECT u.user_id, u.username, u.role, u.driver_id
     FROM users u
-    LEFT JOIN drivers d ON d.user_id = u.user_id
-    WHERE u.username = %s AND u.password_hash = %s;
+    LEFT JOIN drivers d ON d.driver_id = u.driver_id
+    WHERE u.username = %s AND u.password = %s;
     """
     result = fetch_one(sql, (username, password))
     print("DEBUG LOGIN:", username, password, "=>", result)
