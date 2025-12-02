@@ -255,7 +255,20 @@ if st.session_state.get("role") == "admin":
             if not todays_assign:
                 st.info("No assignments for this driver on the selected date.")
             else:
-                st.dataframe(todays_assign, use_container_width=True)
+                # Add delivery_status for admin view
+                enriched_rows = []
+                for r in todays_assign:
+                    status_rows = fetch_all(
+                        "SELECT status FROM deliveries WHERE assignment_id = %s AND delivery_date = %s;",
+                        (r["assignment_id"], work_date)
+                    )
+                    if status_rows:
+                        r["delivery_status"] = status_rows[0]["status"]
+                    else:
+                        r["delivery_status"] = "Not Marked"
+                    enriched_rows.append(r)
+
+                st.dataframe(enriched_rows, use_container_width=True)
 
         except Exception as e:
             st.session_state["last_error"] = str(e)
@@ -281,39 +294,50 @@ elif st.session_state["role"] == "driver":
         if not todays_assign:
             st.info("No assignments for you on this date.")
         else:
-            st.caption("Mark each delivery as Delivered or Missed, then Submit.")
-            status_by_assignment = {}
             for row in todays_assign:
-               key = f'status_{row["assignment_id"]}'
-               status_by_assignment[row["assignment_id"]] = st.radio(
-                f'{row["customer_name"]}',
-                options=["DELIVERED", "MISSED"],
-                horizontal=True,
-                key=key
+                # Get existing status for this assignment & date
+                status_rows = fetch_all(
+                    "SELECT status FROM deliveries WHERE assignment_id = %s AND delivery_date = %s;",
+                    (row["assignment_id"], work_date)
                 )
-             
+                existing_status = status_rows[0]["status"] if status_rows else None
 
-            if st.button("Submit statuses"):
-                try:
-                    for row in todays_assign:
-                        status = status_by_assignment[row["assignment_id"]].lower()
+                if existing_status == "delivered":
+                    default_status = "Delivered"
+                elif existing_status == "missed":
+                    default_status = "Missed"
+                else:
+                    default_status = None
+
+                st.write(f"### {row['customer_name']}")
+                selected_status = st.radio(
+                    f"Status for {row['customer_name']}",
+                    ["Delivered", "Missed"],
+                    index=(0 if default_status == "Delivered" else 1 if default_status == "Missed" else -1),
+                    key=f"radio_{row['assignment_id']}"
+                )
+
+                if st.button("Save Status", key=f"save_{row['assignment_id']}"):
+                    try:
+                        final_status = selected_status.lower()
+
                         update_owed_deliveries(
                             row["assignment_id"],
                             row["customer_id"],
-                            status,
+                            final_status,
                             work_date
                         )
                         upsert_delivery(
                             assignment_id=row["assignment_id"],
                             delivery_date=work_date,
-                            status=status,
+                            status=final_status,
                             marked_by=st.session_state.get("user_id")
                         )
-
-                    st.success("Statuses saved.")
-                except Exception as e:
-                    st.session_state["last_error"] = str(e)
-                    st.error("Failed to save statuses. See sidebar.")
+                        st.success(f"Updated {row['customer_name']} as {selected_status}.")
+                        st.rerun()
+                    except Exception as e:
+                        st.session_state["last_error"] = str(e)
+                        st.error("Failed to update status.")
                     
 # -------------------- Dashboard Tab -----------------
 if st.session_state.get("role") == "admin":
