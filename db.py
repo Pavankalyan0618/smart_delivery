@@ -63,7 +63,7 @@ def list_drivers():
 def add_customer(full_name, phone, address, plan_name, location, subscription_start, subscription_days):
     execute("""
         INSERT INTO customers (full_name, phone_number, address, plan_name, location, subscription_start, subscription_days)
-        VALUES (%s, %s, %s, %s, %s, %s,);
+        VALUES (%s, %s, %s, %s, %s, %s, %s);
     """, (full_name, phone or "", address, plan_name, location, subscription_start, subscription_days))
 
 def add_driver(full_name, phone):

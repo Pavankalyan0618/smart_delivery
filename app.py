@@ -169,6 +169,8 @@ if st.session_state.get("role") == "admin":
             st.markdown("### Customers in Selected Area")
 
             customer_names = [c["full_name"] for c in customers]
+            if "multi_customers" not in st.session_state:
+                st.session_state["multi_customers"] = []
             selected_customers = st.multiselect("Select Customers", customer_names, key="multi_customers")
 
             name_to_id = {c["full_name"]: c["customer_id"] for c in customers}
@@ -188,7 +190,6 @@ if st.session_state.get("role") == "admin":
                             create_assignment(sel_date, cid, driv_map[sel_driv])
 
                         st.success("Assignments created successfully.")
-                        st.session_state["multi_customers"] = []
                     except ValueError as ve:
                         st.error(str(ve))
                     except Exception as e:
