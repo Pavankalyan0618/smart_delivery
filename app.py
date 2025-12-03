@@ -1,3 +1,4 @@
+
 import streamlit as st
 from datetime import date, timedelta
 import time
@@ -12,11 +13,14 @@ from db import (
     create_driver_user
 )
 from db import authenticate_user
+# Initialize Streamlit session state for authentication and session tracking
+# Ensures user login, role, and errors persist across UI reruns
 for key in ["logged_in", "role", "user_id", "driver_id", "last_error"]:
     if key not in st.session_state:
         st.session_state[key] = None
 st.session_state["logged_in"] = st.session_state["logged_in"] or False
 
+# ---------------- LOGIN SCREEN ----------------
 if not st.session_state["logged_in"]:
     st.title("Smart Delivery Login")
  
@@ -37,7 +41,7 @@ if not st.session_state["logged_in"]:
          st.error("Invalid credentials")
     st.stop()   
             
-#-----Logout button--------
+# ---------------- LOGOUT SECTION ----------------
 st.set_page_config(page_title="Smart Delivery", layout="wide")
 col1, col2 = st.columns([8, 1])
 with col1:
@@ -49,7 +53,7 @@ with col2:
         st.success("Logged out successfully.")
         st.rerun()
 
-#---- Role based tabs -----
+# ---------------- ROLE-BASED UI LOADING ----------------
 if st.session_state.get("role") == "admin":
     tabs = st.tabs(["Admin", "Driver", "Dashboard"])
 elif st.session_state.get("role") == "driver":
@@ -58,7 +62,7 @@ else:
     st.error("Unknown role. Please contatct admin.")
     st.stop()
 
-#-----Sidebar diagnostics  ------
+# ---------------- DIAGNOSTICS (DEBUGGING INFO) ----------------
 st.sidebar.title("Diagnostics")
 if st.sidebar.button("DB Ping"):
     st.sidebar.write("DB reachable:", db_healthcheck())
@@ -67,14 +71,15 @@ last_err = st.session_state.get("last_error")
 if last_err:
     st.sidebar.warning(f"Last error: {last_err}")
 
-# -------------------- Admin Tab --------------------
+#-------------------- ADMIN TAB - CUSTOMER & DRIVER MANAGEMENT -------------
+
 if st.session_state.get("role") == "admin":
     with tabs[0]:
         st.subheader("Admin – manage customers, drivers, assignments")
 
         col1, col2 = st.columns(2)
 
-        # LEFT: Add Customer
+        # ---------------- ADD CUSTOMER FORM ----------------
         with col1:
             st.markdown("**Add Customer**")
             c_name = st.text_input("Full name", key="c_name")
@@ -104,9 +109,8 @@ if st.session_state.get("role") == "admin":
                     except Exception as e:
                      st.session_state["last_error"] = str(e)
                      st.error("Failed to save customer. See sidebar for details.")
-
-        
-        # RIGHT: Add Driver
+       
+        # ---------------- ADD DRIVER FORM ----------------
         with col2:
             st.markdown("**Add Driver**")
             d_name = st.text_input("Driver name", key="d_name")
@@ -135,7 +139,8 @@ if st.session_state.get("role") == "admin":
 
         st.divider()
 
-# --------Assignment section--------------------
+# ----------------- ASSIGN CUSTOMERS → DRIVERS (FOR SPECIFIC DATE) -------------
+
         st.markdown("**Assign Customer to Driver (for a date)**")
         try:
             customers = list_customers()
@@ -196,7 +201,7 @@ if st.session_state.get("role") == "admin":
                         st.session_state["last_error"] = str(e)
                         st.error("Failed to create assignment. See sidebar.")
         st.divider()
-
+        # ---------------- LIVE CUSTOMER TABLE ----------------
         st.markdown("**Customers (live from DB)**")
         
         customers = list_customers()
@@ -211,12 +216,11 @@ if st.session_state.get("role") == "admin":
         if "subscription_days" not in df.columns:
             df["subscription_days"] = 30
 
-#-------------- SAFE SUBSCRIPTION END CALCULATION ---------------
+#-------------- SUBSCRIPTION END CALCULATION ---------------
         if not df.empty and "subscription_start" in df.columns:
             
             df["subscription_start"] = pd.to_datetime(df["subscription_start"], errors="coerce")
-
-            
+ 
             df["subscription_end"] = df["subscription_start"] + pd.to_timedelta(
                 df["subscription_days"].fillna(30) + df["owed"].fillna(0),
                 unit="D"
@@ -236,7 +240,9 @@ if st.session_state.get("role") == "admin":
 
         # DISPLAY CUSTOMERS LIVE FROM DB
         st.dataframe(df, use_container_width=True)
-# -------------------- Driver Tab --------------------
+
+
+#----------------- ADMIN VIEW OF DRIVER ASSIGNMENTS + DELIVERY STATUS -------------
 if st.session_state.get("role") == "admin":
     with tabs[1]:
         st.subheader("Driver - mark Delivered / Missed")
@@ -273,6 +279,8 @@ if st.session_state.get("role") == "admin":
         except Exception as e:
             st.session_state["last_error"] = str(e)
             st.error("Couldn't load driver data.")
+
+#--------------------- DRIVER TAB - MARK DELIVERED / MISSED ----------------
 elif st.session_state["role"] == "driver":
     with tabs[0]:
         st.subheader("Driver - mark Delivered / Missed")  
@@ -310,12 +318,29 @@ elif st.session_state["role"] == "driver":
                     default_status = None
 
                 st.write(f"### {row['customer_name']}")
-                selected_status = st.radio(
-                    f"Status for {row['customer_name']}",
-                    ["Delivered", "Missed"],
-                    index=(0 if default_status == "Delivered" else 1 if default_status == "Missed" else -1),
-                    key=f"radio_{row['assignment_id']}"
-                )
+                options = ["Delivered", "Missed"]
+
+                # If an existing status is available, preselect it; otherwise no default index
+                if default_status in options:
+                    idx = options.index(default_status)
+                    selected_status = st.radio(
+                        f"Status for {row['customer_name']}",
+                        options,
+                        index=idx,
+                        key=f"radio_{row['assignment_id']}"
+                    )
+                else:
+                    selected_status = st.radio(
+                        f"Status for {row['customer_name']}",
+                        options,
+                        key=f"radio_{row['assignment_id']}"
+                    )
+
+                # --- Status saved indicator  ---
+                if existing_status == "delivered":
+                    st.write("✔ Saved as Delivered")
+                elif existing_status == "missed":
+                    st.write("✔ Saved as Missed")
 
                 if st.button("Save Status", key=f"save_{row['assignment_id']}"):
                     try:
@@ -338,7 +363,7 @@ elif st.session_state["role"] == "driver":
                     except Exception as e:
                         st.session_state["last_error"] = str(e)
                         st.error("Failed to update status.")
-                    
+
 # -------------------- Dashboard Tab -----------------
 if st.session_state.get("role") == "admin":
     with tabs[2]:
@@ -373,7 +398,7 @@ if st.session_state.get("role") == "admin":
         # TWO COLUMN LAYOUT
         left, right = st.columns(2)
 
-        # LEFT: CARRY-FORWARD
+        #--------- LEFT: CARRY-FORWARD --------------
         with left:
             st.subheader("Carry-Forward Deliveries")
             st.write("")
@@ -396,7 +421,7 @@ if st.session_state.get("role") == "admin":
             except Exception as e:
                 st.error(f"Error loading carry-forward: {e}")
 
-        # RIGHT: DRIVER MISSED
+        #-------------- RIGHT: DRIVER MISSED --------------
         with right:
             st.subheader("Driver-wise Missed Deliveries")
             st.write("")
