@@ -13,8 +13,6 @@ from db import (
     create_driver_user
 )
 from db import authenticate_user
-# Initialize Streamlit session state for authentication and session tracking
-# Ensures user login, role, and errors persist across UI reruns
 for key in ["logged_in", "role", "user_id", "driver_id", "last_error"]:
     if key not in st.session_state:
         st.session_state[key] = None
@@ -75,7 +73,7 @@ if last_err:
 
 if st.session_state.get("role") == "admin":
     with tabs[0]:
-        st.subheader("Admin – manage customers, drivers, assignments")
+        st.subheader("Admin Control Panel – Manage Customers, Drivers & Assignments")
 
         col1, col2 = st.columns(2)
 
@@ -139,9 +137,9 @@ if st.session_state.get("role") == "admin":
 
         st.divider()
 
-# ----------------- ASSIGN CUSTOMERS → DRIVERS (FOR SPECIFIC DATE) -------------
+# ----------------- ASSIGN CUSTOMERS → DRIVERS -------------
 
-        st.markdown("**Assign Customer to Driver (for a date)**")
+        st.markdown("## Customer-to-Driver Assignment Panel")
         try:
             customers = list_customers()
         except Exception as e:
@@ -171,7 +169,7 @@ if st.session_state.get("role") == "admin":
                 customers = [c for c in customers if c.get("location") == selected_area]
 
             # ---------------- CUSTOMER LIST ----------------
-            st.markdown("### Customers in Selected Area")
+            st.markdown("**Customers in Selected Area**")
 
             customer_names = [c["full_name"] for c in customers]
             if "multi_customers" not in st.session_state:
@@ -202,7 +200,7 @@ if st.session_state.get("role") == "admin":
                         st.error("Failed to create assignment. See sidebar.")
         st.divider()
         # ---------------- LIVE CUSTOMER TABLE ----------------
-        st.markdown("**Customers (live from DB)**")
+        st.markdown("## Customer Subscription Overview")
         
         customers = list_customers()
         df = pd.DataFrame(customers)
@@ -245,7 +243,7 @@ if st.session_state.get("role") == "admin":
 #----------------- ADMIN VIEW OF DRIVER ASSIGNMENTS + DELIVERY STATUS -------------
 if st.session_state.get("role") == "admin":
     with tabs[1]:
-        st.subheader("Driver - mark Delivered / Missed")
+        st.subheader("Driver Delivery Tracking – Admin Panel")
 
         work_date = st.date_input("Date", value=date.today(), key="admin_driver_work_date")
 
@@ -283,7 +281,7 @@ if st.session_state.get("role") == "admin":
 #--------------------- DRIVER TAB - MARK DELIVERED / MISSED ----------------
 elif st.session_state["role"] == "driver":
     with tabs[0]:
-        st.subheader("Driver - mark Delivered / Missed")  
+        st.subheader("Delivery Status Submission - Driver View")  
         
         work_date = st.date_input("Date", value=date.today(), key="driver_work_date")
         
@@ -303,7 +301,7 @@ elif st.session_state["role"] == "driver":
             st.info("No assignments for you on this date.")
         else:
             for row in todays_assign:
-                # Get existing status for this assignment & date
+                #------- Get existing status for this assignment & date backend checks -------
                 status_rows = fetch_all(
                     "SELECT status FROM deliveries WHERE assignment_id = %s AND delivery_date = %s;",
                     (row["assignment_id"], work_date)
