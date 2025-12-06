@@ -11,7 +11,7 @@ from db import (
     db_healthcheck,
     list_assignments_for_date, upsert_delivery, delivery_kpis_for_date,
     create_driver_user,
-    delete_customer, delete_driver
+    delete_customer, delete_driver, delete_assignment
 )
 from db import authenticate_user
 from db import update_customer, renew_subscription, pause_delivery_for_customer
@@ -104,7 +104,7 @@ if st.session_state.get("role") == "admin":
                     st.rerun()
             st.markdown("---")
 
-        # ================= CUSTOMER SECTION =================
+        # ------------------------- CUSTOMER SECTION -------------
         if mode == "customer_section":
             st.markdown("### 👤 Customer Management")
 
@@ -128,7 +128,7 @@ if st.session_state.get("role") == "admin":
                 st.session_state["admin_mode"] = None
                 st.rerun()
 
-        # ================= SUBSCRIPTION SECTION =================
+        # -------------------- SUBSCRIPTION SECTION -----------------
         elif mode == "subscription_section":
             st.markdown("### 📦 Subscription Management")
 
@@ -147,7 +147,7 @@ if st.session_state.get("role") == "admin":
                 st.session_state["admin_mode"] = None
                 st.rerun()
 
-        # ================= DRIVER SECTION =================
+        # ------------------ DRIVER SECTION ----------------
         elif mode == "driver_section":
             st.markdown("### 🚗 Driver Management")
 
@@ -262,43 +262,23 @@ if st.session_state.get("role") == "admin":
                     key="bulk_renew_days"
                 )
 
-                if bulk_selected and st.button("Apply Bulk Renewal", key="bulk_renew_btn"):
-                    try:
-                        for name in bulk_selected:
-                            cid = next(c["customer_id"] for c in expired_customers if c["full_name"] == name)
-                            renew_subscription(cid, bulk_days)
-                        st.success(f"Renewed {len(bulk_selected)} customers successfully.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Bulk renewal failed: {e}")
-
-                cust_map = {c["full_name"]: c for c in expired_customers}
-
-                sel = st.selectbox("Select expired customer to renew", ["-- Select --"] + list(cust_map.keys()), key="renew_card_sel")
-
-                if sel != "-- Select --":
-                    c = cust_map[sel]
-
-                    # Calculate subscription_end using same logic as overview table
-                    sub_start = pd.to_datetime(c["subscription_start"])
-                    sub_days = int(c["subscription_days"])
-                    owed = int(c.get("owed", 0))
-
-                    sub_end = sub_start + timedelta(days=sub_days + owed)
-                    today = pd.to_datetime(date.today())
-
-                    # ---- BLOCK RENEWAL IF STILL ACTIVE ----
-                    if sub_end >= today:
-                        st.warning(f"⚠ Subscription for {sel} is ACTIVE until {sub_end.date()}. Cannot renew now.")
+                if st.button("Apply Bulk Renewal", key="bulk_renew_btn"):
+                    if not bulk_selected:
+                        st.warning("No customers selected.")
                     else:
-                        st.success(f"Subscription expired on {sub_end.date()}. Renewal allowed.")
-
-                        extra = st.number_input("Add Days", min_value=1, value=30)
-
-                        if st.button("Apply Renewal"):
-                            renew_subscription(c["customer_id"], extra)
-                            st.success(f"Subscription renewed for {sel}.")
+                        try:
+                            for name in bulk_selected:
+                                c = next(c for c in expired_customers if c["full_name"] == name)
+                                if c.get("owed", 0) > 0:
+                                    st.error(f"{name} cannot be renewed because they have pending owed deliveries.")
+                                    continue
+                                cid = c["customer_id"]
+                                renew_subscription(cid, bulk_days)
+                            st.success(f"Renewed {len(bulk_selected)} customers successfully.")
+                            time.sleep(1.5)
                             st.rerun()
+                        except Exception as e:
+                            st.error(f"Bulk renewal failed: {e}")
             if st.button("⬅ Back"):
                 st.session_state["admin_mode"] = None
                 st.rerun()
@@ -471,11 +451,14 @@ if st.session_state.get("role") == "admin":
                     try:
                         for name in to_remove:
                             aid = cust_map[name]
-                            fetch_all("DELETE FROM assignments WHERE assignment_id = %s;", (aid,))
+                            delete_assignment(aid)
                         st.success(f"Removed {len(to_remove)} assignments.")
+                        time.sleep(1.5)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Failed to remove assignments: {e}")
+
+            st.divider()
 
             # Customer Subscription Overview block
             st.markdown("## Customer Subscription Overview")
@@ -489,13 +472,11 @@ if st.session_state.get("role") == "admin":
             if "subscription_days" not in df.columns:
                 df["subscription_days"] = 30
 
-            if not df.empty and "subscription_start" in df.columns:
-                df["subscription_start"] = pd.to_datetime(df["subscription_start"], errors="coerce")
-                df["subscription_end"] = df["subscription_start"] + pd.to_timedelta(
-                    df["subscription_days"].fillna(30) + df["owed"].fillna(0), unit="D"
-                )
-            else:
-                df["subscription_end"] = pd.NaT
+            df["subscription_start"] = pd.to_datetime(df["subscription_start"], errors="coerce")
+            df["subscription_end"] = df["subscription_start"] + pd.to_timedelta(
+                df["subscription_days"].fillna(0) + df["owed"].fillna(0),
+                unit="D"
+            )
 
             if not df.empty and "subscription_end" in df.columns:
                 today = pd.Timestamp.today()
