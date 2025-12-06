@@ -66,6 +66,94 @@ def add_customer(full_name, phone, address, plan_name, location, subscription_st
         VALUES (%s, %s, %s, %s, %s, %s, %s);
     """, (full_name, phone or "", address, plan_name, location, subscription_start, subscription_days))
 
+def update_customer(customer_id, full_name, phone, address, plan_name, location, subscription_start, subscription_days):
+    """Update an existing customer's core details.
+
+    This is used by the Admin Edit Customer feature.
+    """
+    execute(
+        """
+        UPDATE customers
+        SET full_name = %s,
+            phone_number = %s,
+            address = %s,
+            plan_name = %s,
+            location = %s,
+            subscription_start = %s,
+            subscription_days = %s
+        WHERE customer_id = %s;
+        """,
+        (
+            full_name,
+            phone or "",
+            address,
+            plan_name,
+            location,
+            subscription_start,
+            subscription_days,
+            customer_id,
+        ),
+    )
+
+def renew_subscription(customer_id, extra_days):
+    """Extend a customer's subscription by extra_days.
+
+    This simply adds to subscription_days; subscription_end is recalculated
+    the next time update_owed_deliveries runs.
+    """
+    execute(
+        """
+        UPDATE customers
+        SET subscription_days = subscription_days + %s
+        WHERE customer_id = %s;
+        """,
+        (extra_days, customer_id),
+    )
+
+def delete_customer(customer_id):
+    """Delete a customer and any related assignments & deliveries."""
+    # First delete deliveries linked to assignments of this customer
+    execute("""
+        DELETE FROM deliveries
+        WHERE assignment_id IN (
+            SELECT assignment_id FROM assignments WHERE customer_id = %s
+        );
+    """, (customer_id,))
+
+    # Delete assignments
+    execute("""
+        DELETE FROM assignments
+        WHERE customer_id = %s;
+    """, (customer_id,))
+
+    # Delete customer
+    execute("""
+        DELETE FROM customers
+        WHERE customer_id = %s;
+    """, (customer_id,))
+
+def delete_driver(driver_id):
+    """Delete a driver and related assignments & deliveries."""
+    # Delete deliveries linked to assignments handled by this driver
+    execute("""
+        DELETE FROM deliveries
+        WHERE assignment_id IN (
+            SELECT assignment_id FROM assignments WHERE driver_id = %s
+        );
+    """, (driver_id,))
+
+    # Delete assignments
+    execute("""
+        DELETE FROM assignments
+        WHERE driver_id = %s;
+    """, (driver_id,))
+
+    # Delete driver
+    execute("""
+        DELETE FROM drivers
+        WHERE driver_id = %s;
+    """, (driver_id,))
+
 def add_driver(full_name, phone):
     row = fetch_all("""
         INSERT INTO drivers (full_name, phone)
@@ -90,7 +178,33 @@ def create_assignment(assign_date, customer_id, driver_id, created_by=None):
             raise ValueError("This customer already has an assignment")
     except Exception as e:
         raise   
-            
+
+def pause_delivery_for_customer(customer_id, pause_date, marked_by=None):
+    """Mark a customer's delivery as 'paused' for a specific date.
+
+    We look up the assignment for (customer_id, pause_date) and then
+    upsert a deliveries row with status = 'paused'. This does not
+    change owed, because update_owed_deliveries only adjusts owed
+    for 'delivered' and 'missed'.
+    """
+    # Find assignment for this customer and date
+    row = fetch_one(
+        """
+        SELECT assignment_id
+        FROM assignments
+        WHERE customer_id = %s AND assign_date = %s
+        LIMIT 1;
+        """,
+        (customer_id, pause_date),
+    )
+
+    if not row:
+        raise ValueError("No assignment exists for this customer on the selected date.")
+
+    assignment_id = row["assignment_id"]
+
+    # Insert or update a 'paused' delivery record
+    upsert_delivery(assignment_id, pause_date, "paused", marked_by=marked_by)
 
 def update_owed_deliveries(assignment_id, customer_id, new_status, delivery_date):
     row = fetch_one("SELECT owed FROM customers WHERE customer_id = %s;", (customer_id,))
@@ -106,7 +220,7 @@ def update_owed_deliveries(assignment_id, customer_id, new_status, delivery_date
     old_status = existing["status"] if existing else None
 
 
-    # ---  owed logic ---
+    # ----------  CARRY FORWARD LOGIC --------
     if old_status is None:
         if new_status == "missed":
             owed += 1
