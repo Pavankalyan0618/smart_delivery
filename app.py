@@ -4,16 +4,17 @@ from datetime import date, timedelta
 import time
 import pandas as pd
 from db import fetch_all
-from db import update_owed_deliveries
+
 from db import (
     list_customers, list_drivers,
-    add_customer, add_driver, create_assignment,
+    add_customer, add_driver,
     db_healthcheck,
     list_assignments_for_date, upsert_delivery, delivery_kpis_for_date,
     create_driver_user,
     delete_customer, delete_driver, delete_assignment
 )
 from db import authenticate_user
+from db import auto_create_assignments_for_today
 from db import update_customer, renew_subscription, pause_delivery_for_customer
 for key in ["logged_in", "role", "user_id", "driver_id", "last_error"]:
     if key not in st.session_state:
@@ -36,6 +37,8 @@ if not st.session_state["logged_in"]:
              st.session_state["role"] = user["role"]
              st.session_state["user_id"] = user["user_id"]
              st.session_state["driver_id"] = user.get("driver_id")  # driver only
+             # if user["role"] == "admin":
+             #     auto_create_assignments_for_today()
              st.success(f"Welcome {user['username']} ({user['role']})!")
              time.sleep(1)
              st.rerun()
@@ -57,6 +60,7 @@ with col2:
 
 # ---------------- ROLE-BASED UI LOADING ----------------
 if st.session_state.get("role") == "admin":
+    # Removed automatic auto_create_assignments_for_today on UI load
     tabs = st.tabs(["Admin", "Driver", "Dashboard"])
 elif st.session_state.get("role") == "driver":
     tabs = st.tabs(["Driver"])
@@ -325,8 +329,21 @@ if st.session_state.get("role") == "admin":
                     try:
                         driver_id = add_driver(d_name, d_phone)
                         create_driver_user(username=d_phone, password="1234", driver_id=driver_id)
-                        st.success(f"Driver added. Login: {d_phone} / 1234")
-                        st.rerun()
+                        st.success("Driver created successfully!")
+
+                        st.markdown(f"""
+<div style='border:1px solid #4CAF50; padding:15px; border-radius:8px; background:#f6ffed; margin-top:10px;'>
+<b>Driver Login Credentials</b><br><br>
+<b>Username:</b> {d_phone}<br>
+<b>Password:</b> 1234
+</div>
+""", unsafe_allow_html=True)
+
+                        # Show Back button after success
+                        if st.button("⬅ Back", key="back_after_driver_created"):
+                            st.session_state["admin_mode"] = None
+                            st.rerun()
+                        # st.stop()  # Removed as per instructions
                     except Exception as e:
                         st.error(f"Failed to add driver: {e}")
                 else:
@@ -357,68 +374,22 @@ if st.session_state.get("role") == "admin":
         if mode is None:
             st.markdown("---")
             st.markdown("## Customer-to-Driver Assignment Panel")
-            try:
-                customers = list_customers()
-            except Exception as e:
-                st.session_state["last_error"] = str(e)
-                st.error("Couldn't load customers from DB.")
-                customers = []
-
-            try:
-                drivers = list_drivers()
-            except Exception as e:
-                st.session_state["last_error"] = str(e)
-                st.error("Couldn't load drivers from DB.")
-                drivers = []
-
-            if not customers:
-                st.info("No customers yet. Add one above.")
-            if not drivers:
-                st.info("No drivers yet. Add one above.")
-
-            if customers and drivers:
-
-                # ---------------- AREA DROPDOWN ----------------
-                areas = sorted({c["location"] for c in customers if c.get("location")})
-                selected_area = st.selectbox("Select Area / Location", ["-- Select Area --"] + areas)
-
-                if selected_area != "-- Select Area --":
-                    customers = [c for c in customers if c.get("location") == selected_area]
-
-                # ---------------- CUSTOMER LIST ----------------
-                st.markdown("**Customers in Selected Area**")
-
-                customer_names = [c["full_name"] for c in customers]
-                if "multi_customers" not in st.session_state:
-                    st.session_state["multi_customers"] = []
-                selected_customers = st.multiselect("Select Customers", customer_names, key="multi_customers")
-
-                name_to_id = {c["full_name"]: c["customer_id"] for c in customers}
-
-                # ---------------- SELECTED CUSTOMER ----------------
-                if selected_customers:
-
-                    driv_map = {d["full_name"]: d["driver_id"] for d in drivers}
-
-                    sel_driv = st.selectbox("Driver", list(driv_map.keys()), key="assign_driver")
-                    sel_date = st.date_input("Assignment date", value=date.today(), key="assign_date")
-
-                    if st.button("Create Assignment"):
-                        try:
-                            for name in selected_customers:
-                                cid = name_to_id[name]
-                                create_assignment(sel_date, cid, driv_map[sel_driv])
-
-                            st.success("Assignments created successfully.")
-                        except ValueError as ve:
-                            st.error(str(ve))
-                        except Exception as e:
-                            st.session_state["last_error"] = str(e)
-                            st.error("Failed to create assignment. See sidebar.")
+            st.markdown("### ⚡ Auto-Generate Assignments for Today")
+            if st.button("Generate Today's Assignments Automatically"):
+                try:
+                    auto_create_assignments_for_today()
+                    st.success("Today's auto-assignments were created successfully!")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Auto-assignment failed: {e}")
+            st.markdown("---")
+            # Manual assignment UI removed as per instructions.
             st.divider()
 
             # ----------- NEW: REMOVE ASSIGNMENTS SECTION -----------
             st.markdown("## Remove Existing Assignments")
+            drivers = list_drivers()
 
             remove_date = st.date_input("Select Date to View Assignments", value=date.today(), key="remove_assign_date")
 
@@ -657,12 +628,6 @@ elif st.session_state["role"] == "driver":
                     try:
                         final_status = selected_status.lower()
 
-                        update_owed_deliveries(
-                            row["assignment_id"],
-                            row["customer_id"],
-                            final_status,
-                            work_date
-                        )
                         upsert_delivery(
                             assignment_id=row["assignment_id"],
                             delivery_date=work_date,

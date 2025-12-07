@@ -258,3 +258,68 @@ def authenticate_user(username, password):
         FROM users
         WHERE username = %s AND password = %s;
     """, (username, password))
+
+# -------------------------------
+# AUTO ASSIGNMENT (LOCATION‑WISE ROUND ROBIN)
+# -------------------------------
+def auto_create_assignments_for_today():
+    """
+    Automatically assigns customers to drivers based on LOCATION
+    using a round‑robin approach across available drivers.
+    Does NOT overwrite any existing assignment for today.
+    """
+
+    from datetime import date
+    today = date.today()
+
+    # 1️⃣ Fetch all drivers
+    drivers = list_drivers()
+    if not drivers:
+        return  # No drivers, nothing to do
+
+    driver_ids = [d["driver_id"] for d in drivers]
+    driver_count = len(driver_ids)
+
+    # 2️⃣ Get all active customers
+    customers = fetch_all("""
+        SELECT customer_id, location
+        FROM customers
+        WHERE subscription_start <= %s
+          AND (subscription_start + (subscription_days + owed) * INTERVAL '1 day') >= %s;
+    """, (today, today))
+
+    if not customers:
+        return
+
+    # 3️⃣ Group customers by location
+    grouped = {}
+    for c in customers:
+        loc = c["location"] or "UNKNOWN"
+        grouped.setdefault(loc, []).append(c["customer_id"])
+
+    # 4️⃣ Assign each location to a driver (round‑robin)
+    location_map = {}
+    index = 0
+    for loc in sorted(grouped.keys()):
+        location_map[loc] = driver_ids[index % driver_count]
+        index += 1
+
+    # 5️⃣ Create assignments only if not already assigned today
+    for loc, cust_list in grouped.items():
+        assigned_driver = location_map[loc]
+
+        for cid in cust_list:
+            exists = fetch_one("""
+                SELECT assignment_id
+                FROM assignments
+                WHERE customer_id = %s AND assign_date = %s
+                LIMIT 1;
+            """, (cid, today))
+
+            if exists:
+                continue  # Skip already assigned customers
+
+            execute("""
+                INSERT INTO assignments (assign_date, customer_id, driver_id)
+                VALUES (%s, %s, %s);
+            """, (today, cid, assigned_driver))
